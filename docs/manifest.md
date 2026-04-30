@@ -122,6 +122,27 @@ OpenMUX treats correct input handling as a core feature, not an edge case.
 
 ---
 
+### 2.7 AI-friendly by design
+
+OpenMUX is not AI-first.
+But it should be AI-friendly.
+
+That means the project should be easy for both humans and AI systems to understand and extend.
+
+In practice, that means preferring:
+
+* Clear contracts and explicit interfaces
+* Strong typing over ambiguous behavior
+* Open specifications and documented extension points
+* Predictable structure over hidden magic
+
+If AI is going to help developers build on top of OpenMUX, the codebase should make that easy without turning the product into an agent-centric experience.
+
+AI compatibility is a property of good engineering.
+Not the product strategy.
+
+---
+
 ## 3. What OpenMUX is NOT
 
 * Not an AI-first terminal
@@ -235,4 +256,3 @@ This is not a finished product.
 It is a foundation.
 
 Build on it.
-

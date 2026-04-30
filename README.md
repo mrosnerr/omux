@@ -9,6 +9,11 @@
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/AI-Friendly-7C3AED?style=flat-square" alt="AI Friendly" />
+  <img src="https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square" alt="Apache 2.0 license" />
+</p>
+
+<p align="center">
   <a href="./docs/manifest.md">Manifesto</a>
 </p>
 
@@ -28,6 +33,20 @@ It is built for developers who want tools they can understand, adapt, and build 
 - **Hackability over features** — expose hooks and extension points instead of hardcoding every workflow into the core.
 - **Sensible defaults** — useful tabs, session management, notifications, and keybindings should work out of the box.
 - **International-first** — keyboard handling must work correctly across layouts, modifiers, and compose/dead key input.
+
+## AI-Friendly by Design
+
+OpenMUX is not an AI-first terminal, but it is intended to be **AI-friendly**.
+
+That means building the project in ways that are easy for both humans and AI systems to work with:
+
+- Clear contracts and explicit interfaces
+- Strong typing over ambiguous behavior
+- Open specifications and documented extension points
+- Predictable structure instead of hidden magic
+
+The goal is not to turn the terminal into an agent product.
+The goal is to make OpenMUX easy to understand, extend, and build on with good engineering discipline.
 
 ## What OpenMUX is
 
@@ -70,6 +89,10 @@ This is not positioned as a finished product. It is a foundation meant to be bui
 ## Status
 
 OpenMUX is in its early stage, and the current direction is defined in the [manifest](./docs/manifest.md).
+
+## Contributing
+
+Please read [CONTRIBUTING](./CONTRIBUTING.md) and [CODE OF CONDUCT](./CODE_OF_CONDUCT.md) before opening a pull request.
 
 ## License
 
