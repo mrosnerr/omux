@@ -14,3 +14,4 @@ xcuserdata/
 Vendor/ghostty/.zig-cache/
 Vendor/ghostty/zig-out/
 Vendor/ghostty/macos/GhosttyKit.xcframework/
+Vendor/ghostty/macos/GhosttyKit.xcframework.omux-build-stamp
