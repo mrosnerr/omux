@@ -1,0 +1,78 @@
+schema: spec-driven
+
+context: |
+  Project: OpenMUX
+  Product thesis: a fast, flexible, and hackable terminal workspace for developers.
+
+  Current project stage:
+  - Early foundation stage
+  - Architecture and interfaces matter more than feature breadth
+  - Prefer explicit specs, clear boundaries, and good typing
+
+  Core product philosophy:
+  - Terminal first: the terminal is the product, not a browser or sidecar
+  - Open by design: behavior should be inspectable, replaceable, and extendable
+  - Tools, not opinions: support shell, tmux, SSH-heavy, and AI-assisted workflows without forcing one workflow
+  - Hackability over features: expose hooks and extension points instead of baking every workflow into the core
+  - Sensible defaults: useful out of the box without hours of setup
+  - International-first: keyboard handling for EU layouts, Alt/Option combinations, dead keys, and compose keys is a first-order requirement
+  - AI-friendly by design: use OpenSpec, explicit interfaces, strong typing, documented extension points, and predictable structure
+  - Performance is a feature: fast startup, low overhead, smooth rendering, and no unnecessary background processes
+
+  Product guardrails:
+  - Not an AI-first terminal
+  - Not a browser inside a terminal
+  - Not a monolithic do-everything tool
+  - Not tied to a single vendor or ecosystem
+
+  Intended v1 technical direction from current research:
+  - macOS-only desktop product for v1
+  - Native app shell: AppKit-first, with selective SwiftUI for non-terminal chrome
+  - Language/tooling direction: Swift + Xcode + Swift Package Manager
+  - Terminal foundation: pinned libghostty behind a narrow bridge module
+  - CLI: `omux`
+  - IPC/control plane: JSON-RPC over a Unix domain socket
+  - Extensions: external hooks/plugins first; sandboxed WASM later
+  - Distribution: notarized DMG + Homebrew cask for app + Homebrew formula for CLI
+  - License: Apache-2.0
+
+  Architecture constraints:
+  - Keep libghostty behind a single narrow bridge boundary; do not spread libghostty types across the codebase
+  - Prefer OpenMUX-native concepts such as workspaces, panes, tabs, sessions, hooks, notifications, keymaps, and persistence
+  - Favor small, composable modules over large rigid subsystems
+  - Design extension points and hooks as stable contracts, not incidental implementation leaks
+
+  Clean-room / licensing constraints:
+  - Do not copy cmux code or file contents
+  - It is acceptable to reuse ideas, behavior, requirements, and architectural observations
+  - Preserve clean-room distance from GPL code
+
+  Quality bar:
+  - Keyboard correctness is a blocker-level concern
+  - Specs should call out ISO/EU layouts, right-Option behavior, dead keys, and compose-key implications when input is affected
+  - Keep interfaces explicit and behavior testable
+
+rules:
+  proposal:
+    - Start with the user problem and explain why it matters for a terminal-first developer workspace.
+    - Include a "Goals" section and a "Non-goals" section.
+    - Explain how the change aligns with the manifesto principles, especially terminal-first, openness, hackability, and performance.
+    - Call out any impact on keyboard/input correctness, extension points, plugin APIs, or the libghostty bridge boundary.
+    - Reject or explicitly flag proposals that introduce browser-heavy architecture, unnecessary background services, vendor lock-in, or monolithic core behavior.
+    - If inspiration comes from cmux or another GPL project, describe it as clean-room behavioral inspiration only.
+
+  spec:
+    - Write requirements as explicit, testable behavior.
+    - Prefer OpenMUX-native concepts and terminology: workspace, pane, tab, session, hook, notification, keymap, plugin, CLI, RPC.
+    - Specify extension points, boundaries, and contracts explicitly rather than leaving them implicit.
+    - Include error handling, failure modes, and lifecycle behavior for user-visible changes.
+    - For terminal/input changes, include international keyboard behavior and modifier semantics where relevant.
+    - For architecture changes, preserve the narrow libghostty bridge and avoid leaking upstream implementation details into the rest of the system.
+    - Note performance expectations when a change could affect startup time, memory, rendering, or background activity.
+
+  tasks:
+    - Break work into small, dependency-aware tasks that preserve the architecture boundary between app logic and terminal bridge logic.
+    - Sequence foundational interface work before UI polish or broad feature additions.
+    - Include documentation updates when a change affects public behavior, plugin contracts, or architecture direction.
+    - Include validation tasks for keyboard/input behavior whenever key handling, PTY behavior, or command dispatch is affected.
+    - Prefer incremental slices that produce a coherent vertical capability instead of scattered partial implementation.
