@@ -9,6 +9,10 @@
 </p>
 
 <p align="center">
+
+  <a href="https://github.com/finger-gun/omux/actions/workflows/ci.yml">
+    <img src="https://github.com/finger-gun/omux/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status" />
+  </a>
   <img src="https://img.shields.io/badge/AI-Friendly-7C3AED?style=flat-square" alt="AI Friendly" />
   <img src="https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square" alt="Apache 2.0 license" />
 </p>
@@ -99,6 +103,18 @@ This is not positioned as a finished product. It is a foundation meant to be bui
 ## Status
 
 OpenMUX is in its early stage, and the current direction is defined in the [manifest](./docs/manifest.md).
+
+## Development
+
+The repository now includes an initial Swift package foundation for:
+
+- a native **OpenMUXApp** macOS executable
+- the **`omux`** CLI
+- a narrow **terminal bridge** boundary
+- a local **JSON-RPC** control plane
+- external **hook execution** seams
+
+See [docs/development.md](./docs/development.md) for module boundaries and foundation rules.
 
 ## Contributing
 

@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-test:
+    runs-on: macos-15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Build
+        run: swift build
+
+      - name: Test
+        run: swift test
+
+  runtime-smoke:
+    runs-on: macos-15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Cache Ghostty build state
+        id: ghostty-cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            .build/tools
+            Vendor/ghostty/macos/GhosttyKit.xcframework
+            Vendor/ghostty/macos/GhosttyKit.xcframework.omux-build-stamp
+            Vendor/ghostty/.zig-cache
+            Vendor/ghostty/zig-out
+          key: ${{ runner.os }}-ghostty-${{ hashFiles('Vendor/ghostty/PINNED_REF', 'Scripts/build-ghostty.sh') }}
+
+      - name: Cache Homebrew downloads
+        uses: actions/cache@v5
+        with:
+          path: ~/Library/Caches/Homebrew
+          key: ${{ runner.os }}-brew-zig15
+          restore-keys: |
+            ${{ runner.os }}-brew-
+
+      - name: Ensure Metal tools are available
+        if: steps.ghostty-cache.outputs.cache-hit != 'true'
+        run: |
+          if ! xcrun -f metal >/dev/null 2>&1; then
+            sudo xcodebuild -downloadComponent MetalToolchain
+          fi
+
+      - name: Install Zig 0.15
+        if: steps.ghostty-cache.outputs.cache-hit != 'true'
+        run: brew install zig@0.15
+
+      - name: Build vendored Ghostty runtime
+        run: make setup
+
+      - name: Verify project with runtime enabled
+        run: make verify
+
+      - name: Launch app smoke test
+        run: make smoke
