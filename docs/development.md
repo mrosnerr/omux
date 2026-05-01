@@ -2,11 +2,15 @@
 
 OpenMUX currently uses a Swift Package Manager workspace to establish the initial foundation, workspace shell, interactive-terminal, pane-tab-stacks, and bridge-owned surface-hosting slices described by the applied OpenSpec changes.
 
+The config/theme foundation now lives on top of **`~/.omux/config.toml`**, **`~/.omux/themes/`**, and generated Ghostty artifacts under **`~/.omux/generated/ghostty/`**. See [`docs/configuration.md`](./configuration.md) for the user-facing model.
+
 ## Module boundaries
 
 | Module | Responsibility |
 | --- | --- |
 | `OmuxCore` | OpenMUX-native domain types for workspaces, panes, sessions, notifications, and normalized key events |
+| `OmuxConfig` | OpenMUX config parsing, diagnostics, paths, and starter-config scaffolding |
+| `OmuxTheme` | Theme registry, token vocabulary, theme compilation, and generated Ghostty config emission |
 | `OmuxTerminalBridge` | The only layer allowed to depend directly on `libghostty` / `CGhostty` |
 | `OmuxControlPlane` | Local JSON-RPC control plane over a Unix domain socket |
 | `OmuxHooks` | Hook contracts and external process execution |
@@ -41,7 +45,7 @@ The script expects:
 - Zig 0.15.2, with Homebrew `zig@0.15` preferred when available
 - Xcode's Metal Toolchain component installed for the macOS xcframework build
 
-When `GhosttyKit.xcframework` is present, hosted panes use runtime-owned native Ghostty surfaces by default. When it is absent or runtime attach fails, the bridge falls back to the internal PTY-backed text host so the shell can still render a working pane.
+When `GhosttyKit.xcframework` is present, hosted panes use runtime-owned native Ghostty surfaces by default. When it is absent or runtime attach fails, the bridge falls back to the internal PTY-backed text host so the shell can still render a working pane. Plain `swift build` / `swift test` must continue to work in that no-runtime configuration because CI validates both the vendored-runtime path and the fallback path separately.
 
 ## Commands
 
@@ -54,6 +58,12 @@ make verify
 make smoke
 swift build
 swift test
+swift run omux config doctor
+swift run omux config reload
+swift run omux config init
+swift run omux theme
+swift run omux theme nord
+swift run omux theme list
 swift run omux tab
 swift run omux split
 swift run omux split down
@@ -72,14 +82,24 @@ If you want one stable, native entrypoint for daily development, prefer the root
 The current shell baseline adds:
 
 - real bridge-backed pane views
+- a terminal-native shell composition with persistent sidebar navigation, sidebar-owned workspace/tab switching, no persistent top bar, flatter pane chrome, and a titlebar that visually blends into the shell surface
 - direct typing into the focused pane
-- persistent pane-owned interactive shell sessions
-- top-level workspace tabs plus split-right and split-down panes in the native shell
+- persistent pane-owned interactive shell sessions behind workspace and pane navigation instead of a separate Sessions sidebar section
+- split-right and split-down panes routed through native View menu commands instead of persistent shell buttons
 - pane stacks at each split leaf, with local pane tabs inside a region
+- token-owned shell-and-terminal theming sourced from `~/.omux/config.toml`, user theme overrides in `~/.omux/themes/`, and eight bundled presets (Monokai Soda, Catppuccin, Dracula, Nord, Gruvbox, One Dark, Solarized Dark, Solarized Light)
+- explicit config diagnostics and `omux config doctor` / `omux config reload` support through the same local control plane
+- a second polish pass that tightens shell proportions, makes sidebar navigation visible/useful, and gives shell controls real intrinsic sizing
+- a follow-up navigation pass that moves workspace tabs into the left rail, adds a compact sidebar workspace-creation affordance, supports workspace renaming, and disables destructive workspace/pane commands when they would empty the shell
+- generated workspace labels (`Workspace 1`, `Workspace 2`, ...) with optional custom overrides that can be reset back to their generated names
+- workspace-row and pane-tab context menus for localized rename and close flows
+- sidebar child rows for live terminals, with git-aware repo/branch/path metadata when available and path-only fallbacks otherwise
+- pane chrome that reserves its secondary status row for transient terminal state instead of duplicating cwd identity
 - bridge-provided hosted terminal pane views embedded inside AppKit pane stacks
 - shared workspace/session actions used by both the UI and `omux`
 - command injection routed into ongoing live pane sessions
 - pane resize propagation into the live terminal runtime
+- keyboard-first workspace controls including `Cmd+D` split right, `Cmd+Shift+D` split down, `Cmd+B` workspace-column toggle, `Cmd+1` through `Cmd+9` ordered workspace jumps, and `Cmd+0` previous-workspace recall
 
 ## Pane stack model
 
@@ -97,10 +117,41 @@ This keeps shell structure in `OmuxCore` and `OmuxAppShell` while the terminal b
 The current pane-hosting split is:
 
 - `OmuxAppShell` owns workspace layout, pane-stack chrome, and focus state
-- `OmuxTerminalBridge` owns pane surfaces, attached sessions, resize propagation, and hosted terminal pane views
+- `OmuxTerminalBridge` owns pane surfaces, attached sessions, resize propagation, hosted terminal pane views, and terminal palette application
 - the bridge chooses between a vendored Ghostty runtime-owned native surface host and its internal fallback host
 
 This keeps the shell AppKit-first while preserving one narrow terminal-engine seam.
+
+## Terminal action dispatch
+
+OpenMUX now translates a focused first wave of Ghostty action callbacks into OpenMUX-native terminal events instead of rejecting every upcall.
+
+The dispatch path is intentionally layered:
+
+1. `CGhosttyRuntime` decodes supported `ghostty_action_s` values into bridge-owned `TerminalAction` records keyed by `runtimeSurfaceID`.
+2. `GhosttyTerminalBridge` enriches them with `paneID` and `sessionID` and publishes typed `TerminalActionEvent` values to observers.
+3. `OmuxAppShell.TerminalActionCoordinator` resolves workspace/tab context, updates pane state, performs native host-side behavior, emits structured hooks, and publishes app-local control-plane terminal events.
+
+Supported first-wave actions:
+
+- `PWD`
+- `SET_TITLE`
+- `SET_TAB_TITLE`
+- `OPEN_URL`
+- `DESKTOP_NOTIFICATION`
+- `RING_BELL`
+- `COMMAND_FINISHED`
+- `PROGRESS_REPORT`
+- `SHOW_CHILD_EXITED`
+- `RENDERER_HEALTH`
+
+Key boundary rules:
+
+- Ghostty enums and payload structs stay inside `OmuxTerminalBridge`.
+- Hook payloads now use `OmuxValue` instead of string-only metadata.
+- Control-plane terminal event names are OpenMUX-native (`terminal.cwdChanged`, `terminal.commandFinished`, and so on) and are defined without committing to a long-lived streaming transport.
+- Unsupported and app-shell ownership actions remain rejected by default.
+- The fallback runtime stays silent for terminal-action events unless it gains equivalent native signals later.
 
 ## Current limitations
 

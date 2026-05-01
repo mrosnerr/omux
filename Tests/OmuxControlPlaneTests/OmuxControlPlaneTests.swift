@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+@testable import OmuxCore
 @testable import OmuxControlPlane
 
 final class OmuxControlPlaneTests: XCTestCase {
@@ -67,5 +68,55 @@ final class OmuxControlPlaneTests: XCTestCase {
         XCTAssertEqual(focusPaneTab.result, .object(["method": .string(ControlMethod.focusPaneTab.rawValue)]))
         XCTAssertEqual(closePaneTab.result, .object(["method": .string(ControlMethod.closePaneTab.rawValue)]))
         XCTAssertEqual(run.result, .object(["method": .string(ControlMethod.runCommand.rawValue)]))
+    }
+
+    func testConfigCommandsRoundTrip() throws {
+        let socketPath = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString)
+            .appending(path: "config.sock")
+            .path(percentEncoded: false)
+
+        let server = LocalControlServer(socketPath: socketPath)
+        try server.start { request in
+            JSONRPCResponse(id: request.id, result: .object(["method": .string(request.method)]))
+        }
+        defer { server.stop() }
+
+        let client = OmuxControlClient(socketPath: socketPath)
+        let doctor = try client.request(method: .configDoctor)
+        let reload = try client.request(method: .configReload)
+
+        XCTAssertEqual(doctor.result, .object(["method": .string(ControlMethod.configDoctor.rawValue)]))
+        XCTAssertEqual(reload.result, .object(["method": .string(ControlMethod.configReload.rawValue)]))
+    }
+
+    func testControlPlaneTerminalEventUsesOpenMUXNativePayloads() {
+        let event = ControlPlaneTerminalEvent(
+            name: .commandFinished,
+            workspaceID: WorkspaceID(rawValue: "workspace-1"),
+            tabID: TabID(rawValue: "tab-1"),
+            paneID: PaneID(rawValue: "pane-1"),
+            sessionID: SessionID(rawValue: "session-1"),
+            payload: .object([
+                "exitCode": .integer(0),
+                "durationNanoseconds": .integer(42),
+            ])
+        )
+
+        XCTAssertEqual(event.name.rawValue, "terminal.commandFinished")
+        XCTAssertEqual(
+            event.rpcValue,
+            .object([
+                "name": .string("terminal.commandFinished"),
+                "workspaceID": .string("workspace-1"),
+                "tabID": .string("tab-1"),
+                "paneID": .string("pane-1"),
+                "sessionID": .string("session-1"),
+                "payload": .object([
+                    "exitCode": .integer(0),
+                    "durationNanoseconds": .integer(42),
+                ]),
+            ])
+        )
     }
 }

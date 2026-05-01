@@ -144,6 +144,8 @@ Instead of putting every feature directly into the core, OpenMUX should expose:
 The goal is not to build everything.
 The goal is to make everything buildable.
 
+That includes terminal-engine upcalls: cwd changes, command completion, bell, URL-open requests, progress, and similar session signals should become OpenMUX-native events and structured hook payloads rather than leaking engine-owned enums or getting flattened to strings.
+
 ---
 
 ### 2.7 Sensible defaults
@@ -197,6 +199,8 @@ AI agents should integrate through the same open system as every other tool:
 
 No agent should be privileged in the core.
 Claude, Codex, Aider, local models, shell scripts, and future tools should all be peers.
+
+The same rule applies to configuration and appearance: users configure **OpenMUX**, and OpenMUX configures the terminal engine. Themes, font choices, terminal defaults, and future UX-facing settings should live in OpenMUX-native config and be compiled to Ghostty internally instead of exposing Ghostty config as the product surface.
 
 The right architecture is not:
 

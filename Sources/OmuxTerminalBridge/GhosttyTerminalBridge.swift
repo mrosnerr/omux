@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import OmuxConfig
 import OmuxCore
 
 #if canImport(CGhostty)
@@ -29,6 +30,8 @@ public struct TerminalSessionAttachment: Equatable, Sendable {
 }
 
 public protocol GhosttyRuntime {
+    func applyCompiledConfig(path: URL) throws -> [OmuxConfigDiagnostic]
+    func refreshCompiledConfig(path: URL) throws -> [OmuxConfigDiagnostic]
     func createSurface(for paneID: PaneID) throws -> String
     func attach(session: SessionDescriptor, to runtimeSurfaceID: String) throws
     func destroySurface(runtimeSurfaceID: String) throws
@@ -41,6 +44,9 @@ public protocol GhosttyRuntime {
     func handle(_ event: NormalizedKeyEvent, on runtimeSurfaceID: String) throws
     func resizeSurface(runtimeSurfaceID: String, columns: Int, rows: Int) throws
     func setSurfaceFocused(runtimeSurfaceID: String, focused: Bool)
+    func setTerminalActionHandler(
+        _ handler: (@Sendable (RuntimeTerminalActionRecord) -> Bool)?
+    )
     func snapshot(
         paneID: PaneID,
         sessionID: SessionID,
@@ -51,6 +57,16 @@ public protocol GhosttyRuntime {
 }
 
 public extension GhosttyRuntime {
+    func applyCompiledConfig(path: URL) throws -> [OmuxConfigDiagnostic] {
+        _ = path
+        return []
+    }
+
+    func refreshCompiledConfig(path: URL) throws -> [OmuxConfigDiagnostic] {
+        _ = path
+        return []
+    }
+
     func ownsSession(for runtimeSurfaceID: String) -> Bool {
         _ = runtimeSurfaceID
         return false
@@ -75,6 +91,12 @@ public extension GhosttyRuntime {
     func setSurfaceFocused(runtimeSurfaceID: String, focused: Bool) {
         _ = runtimeSurfaceID
         _ = focused
+    }
+
+    func setTerminalActionHandler(
+        _ handler: (@Sendable (RuntimeTerminalActionRecord) -> Bool)?
+    ) {
+        _ = handler
     }
 
     func snapshot(
@@ -196,29 +218,46 @@ public final class GhosttyTerminalBridge: @unchecked Sendable {
     private var sessionsByPane: [PaneID: SessionID] = [:]
     private var sessionStateByPane: [PaneID: SessionState] = [:]
     private var observers: [PaneID: [UUID: @Sendable (TerminalSessionSnapshot) -> Void]] = [:]
+    private var terminalActionObservers: [UUID: @Sendable (TerminalActionEvent) -> Void] = [:]
 
     public init(
         dependency: GhosttyPinnedDependency = .foundationDefault(),
-        runtime: (any GhosttyRuntime)? = nil
+        runtime: (any GhosttyRuntime)? = nil,
+        compiledConfigPath: URL? = nil
     ) {
         self.dependency = dependency
-        self.runtime = runtime ?? defaultGhosttyRuntime()
+        self.runtime = runtime ?? defaultGhosttyRuntime(compiledConfigPath: compiledConfigPath)
+        self.runtime.setTerminalActionHandler { [weak self] record in
+            self?.handleRuntimeTerminalAction(record) ?? false
+        }
     }
 
     public var pinnedDependency: GhosttyPinnedDependency {
         dependency
     }
 
+    @discardableResult
+    public func applyCompiledConfig(path: URL) throws -> [OmuxConfigDiagnostic] {
+        try runtime.applyCompiledConfig(path: path)
+    }
+
+    @discardableResult
+    public func refreshCompiledConfig(path: URL) throws -> [OmuxConfigDiagnostic] {
+        try runtime.refreshCompiledConfig(path: path)
+    }
+
     @MainActor
     public func makeHostedPaneView(
         for pane: Pane,
         isFocused: Bool,
+        themePalette: TerminalThemePalette = .defaultDark,
         onFocus: @escaping @MainActor (PaneID) -> Void
     ) -> HostedTerminalPaneView {
         HostedTerminalPaneView(
             pane: pane,
             bridge: self,
             isFocused: isFocused,
+            themePalette: themePalette,
             onFocus: onFocus
         )
     }
@@ -349,11 +388,24 @@ public final class GhosttyTerminalBridge: @unchecked Sendable {
         lock.unlock()
     }
 
-    public func handle(_ event: NormalizedKeyEvent, inPane paneID: PaneID) throws {
-        guard event.phase == .keyDown else {
-            return
-        }
+    @discardableResult
+    public func addTerminalActionObserver(
+        observer: @escaping @Sendable (TerminalActionEvent) -> Void
+    ) -> UUID {
+        let token = UUID()
+        lock.lock()
+        terminalActionObservers[token] = observer
+        lock.unlock()
+        return token
+    }
 
+    public func removeTerminalActionObserver(token: UUID) {
+        lock.lock()
+        terminalActionObservers.removeValue(forKey: token)
+        lock.unlock()
+    }
+
+    public func handle(_ event: NormalizedKeyEvent, inPane paneID: PaneID) throws {
         guard event.route != .shortcut else {
             return
         }
@@ -365,6 +417,10 @@ public final class GhosttyTerminalBridge: @unchecked Sendable {
         if let state, state.runtimeOwned {
             try runtime.handle(event, on: state.runtimeSurfaceID)
             publishSnapshot(for: paneID)
+            return
+        }
+
+        guard event.phase == .keyDown else {
             return
         }
 
@@ -464,6 +520,36 @@ public final class GhosttyTerminalBridge: @unchecked Sendable {
         for observer in paneObservers {
             observer(snapshot)
         }
+    }
+
+    private func handleRuntimeTerminalAction(_ record: RuntimeTerminalActionRecord) -> Bool {
+        let event: TerminalActionEvent?
+        let actionObservers: [@Sendable (TerminalActionEvent) -> Void]
+        lock.lock()
+        if let surface = surfaces.values.first(where: { $0.runtimeSurfaceID == record.runtimeSurfaceID }),
+           let sessionID = sessionsByPane[surface.paneID]
+        {
+            event = TerminalActionEvent(
+                paneID: surface.paneID,
+                sessionID: sessionID,
+                runtimeSurfaceID: record.runtimeSurfaceID,
+                action: record.action
+            )
+            actionObservers = terminalActionObservers.map(\.value)
+        } else {
+            event = nil
+            actionObservers = []
+        }
+        lock.unlock()
+
+        guard let event else {
+            return false
+        }
+
+        for observer in actionObservers {
+            observer(event)
+        }
+        return true
     }
 
     private func makeSnapshot(for paneID: PaneID) -> TerminalSessionSnapshot? {
@@ -572,6 +658,7 @@ public final class GhosttyTerminalBridge: @unchecked Sendable {
     func makeHostedSurfaceContentHost(
         for pane: Pane,
         isFocused: Bool,
+        themePalette: TerminalThemePalette = .defaultDark,
         onFocus: @escaping @MainActor (PaneID) -> Void
     ) -> any TerminalSurfaceContentHosting {
         if let surface = surface(for: pane.id),
@@ -581,6 +668,7 @@ public final class GhosttyTerminalBridge: @unchecked Sendable {
                 runtimeView: runtimeView,
                 bridge: self,
                 isFocused: isFocused,
+                themePalette: themePalette,
                 onFocus: onFocus
             )
         }
@@ -589,6 +677,7 @@ public final class GhosttyTerminalBridge: @unchecked Sendable {
             pane: pane,
             bridge: self,
             isFocused: isFocused,
+            themePalette: themePalette,
             onFocus: onFocus
         )
     }
@@ -605,7 +694,7 @@ public final class GhosttyTerminalBridge: @unchecked Sendable {
     }
 }
 
-private func defaultGhosttyRuntime() -> any GhosttyRuntime {
+private func defaultGhosttyRuntime(compiledConfigPath: URL?) -> any GhosttyRuntime {
     if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
         || NSClassFromString("XCTestCase") != nil
     {
@@ -613,7 +702,7 @@ private func defaultGhosttyRuntime() -> any GhosttyRuntime {
     }
 
 #if canImport(CGhostty)
-    return CGhosttyRuntime()
+    return CGhosttyRuntime(compiledConfigPath: compiledConfigPath)
 #else
     return UnavailableGhosttyRuntime()
 #endif

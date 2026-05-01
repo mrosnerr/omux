@@ -1,4 +1,13 @@
 import AppKit
+#if canImport(CGhostty)
+import CGhostty
+#else
+typealias ghostty_input_mouse_state_e = Int32
+let GHOSTTY_MOUSE_PRESS: ghostty_input_mouse_state_e = 1
+let GHOSTTY_MOUSE_RELEASE: ghostty_input_mouse_state_e = 0
+#endif
+import OmuxConfig
+import OmuxTheme
 import Foundation
 import XCTest
 @testable import OmuxCore
@@ -23,7 +32,8 @@ final class OmuxTerminalBridgeTests: XCTestCase {
 
     @MainActor
     func testBridgeCreatesHostedPaneViewForAttachedPane() throws {
-        let bridge = GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime())
+        let runtime = InspectableGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
         let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
         let pane = Pane(title: "Main", session: session)
 
@@ -36,6 +46,7 @@ final class OmuxTerminalBridgeTests: XCTestCase {
         let snapshot = try XCTUnwrap(bridge.snapshot(for: pane.id))
         XCTAssertGreaterThan(snapshot.columns, 20)
         XCTAssertGreaterThan(snapshot.rows, 5)
+        XCTAssertTrue(hostedView.focusTarget === runtime.hostedViews["inspect:\(pane.id.rawValue)"])
     }
 
     @MainActor
@@ -99,6 +110,25 @@ final class OmuxTerminalBridgeTests: XCTestCase {
     }
 
     @MainActor
+    func testFallbackHostedViewKeepsStandardEditCommandsAvailable() throws {
+        let bridge = GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime())
+        let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
+        let pane = Pane(title: "Main", session: session)
+
+        _ = try bridge.attach(session: session, to: pane)
+        let hostedView = bridge.makeHostedPaneView(for: pane, isFocused: true) { _ in }
+        let focusTarget = try XCTUnwrap(hostedView.focusTarget as? NSTextView)
+
+        focusTarget.string = "copy me"
+        NSPasteboard.general.clearContents()
+        focusTarget.selectAll(nil)
+        XCTAssertEqual(focusTarget.selectedRange(), NSRange(location: 0, length: 7))
+        focusTarget.copy(nil)
+
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "copy me")
+    }
+
+    @MainActor
     func testDefaultBridgeUsesRuntimeHostedSurfaceWhenGhosttyKitExists() throws {
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
             || NSClassFromString("XCTestCase") != nil
@@ -138,6 +168,413 @@ final class OmuxTerminalBridgeTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testRuntimeHostedPaneUsesRuntimeViewAsFocusTargetWithoutOverlay() throws {
+        let runtime = InspectableGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
+        let pane = Pane(title: "Runtime", session: session)
+
+        _ = try bridge.attach(session: session, to: pane)
+        let hostedView = bridge.makeHostedPaneView(for: pane, isFocused: false) { _ in }
+
+        let runtimeView = try XCTUnwrap(runtime.hostedViews["inspect:\(pane.id.rawValue)"])
+        XCTAssertTrue(hostedView.focusTarget === runtimeView)
+
+        let runtimeContainer = try XCTUnwrap(hostedView.subviews.first)
+        XCTAssertEqual(runtimeContainer.subviews.count, 1)
+        XCTAssertTrue(runtimeContainer.subviews.first === runtimeView)
+    }
+
+    @MainActor
+    func testRuntimeHostedViewFocusHandoffKeepsMouseDownEvent() throws {
+        let runtime = InspectableGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
+        let pane = Pane(title: "Runtime", session: session)
+        var focusedPaneID: PaneID?
+
+        _ = try bridge.attach(session: session, to: pane)
+        let hostedView = bridge.makeHostedPaneView(for: pane, isFocused: false) { paneID in
+            focusedPaneID = paneID
+        }
+        let runtimeView = try XCTUnwrap(runtime.hostedViews["inspect:\(pane.id.rawValue)"])
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = hostedView
+        hostedView.frame = window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 640, height: 480)
+        runtimeView.frame = hostedView.bounds
+
+        let event = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .leftMouseDown,
+                location: NSPoint(x: 24, y: 32),
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: window.windowNumber,
+                context: nil,
+                eventNumber: 1,
+                clickCount: 1,
+                pressure: 1
+            )
+        )
+
+        runtimeView.mouseDown(with: event)
+
+        XCTAssertEqual(focusedPaneID, pane.id)
+        XCTAssertEqual(runtime.mouseButtons.count, 1)
+        XCTAssertEqual(runtime.mouseButtons.first?.state, GHOSTTY_MOUSE_PRESS)
+        XCTAssertEqual(runtime.mouseButtons.first?.buttonNumber, 0)
+    }
+
+    @MainActor
+    func testRuntimeHostedViewTrackingAreaDoesNotReceiveCrossPaneDragEvents() throws {
+        let runtime = InspectableGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
+        let pane = Pane(title: "Runtime", session: session)
+
+        _ = try bridge.attach(session: session, to: pane)
+        _ = bridge.makeHostedPaneView(for: pane, isFocused: true) { _ in }
+        let runtimeView = try XCTUnwrap(runtime.hostedViews["inspect:\(pane.id.rawValue)"])
+        runtimeView.frame = NSRect(x: 0, y: 0, width: 320, height: 200)
+
+        runtimeView.updateTrackingAreas()
+
+        let trackingArea = try XCTUnwrap(runtimeView.trackingAreas.first)
+        XCTAssertFalse(trackingArea.options.contains(.enabledDuringMouseDrag))
+        XCTAssertTrue(trackingArea.options.contains(.mouseMoved))
+        XCTAssertTrue(trackingArea.options.contains(.mouseEnteredAndExited))
+    }
+
+    @MainActor
+    func testRuntimeHostedViewRoutesStandardEditCommandsThroughRuntimeActions() throws {
+        let runtime = InspectableGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
+        let pane = Pane(title: "Runtime", session: session)
+
+        _ = try bridge.attach(session: session, to: pane)
+        _ = bridge.makeHostedPaneView(for: pane, isFocused: true) { _ in }
+        let runtimeView = try XCTUnwrap(runtime.hostedViews["inspect:\(pane.id.rawValue)"])
+
+        runtimeView.copy(nil)
+        runtimeView.paste(nil)
+        runtimeView.selectAll(nil)
+
+        XCTAssertEqual(
+            runtime.bindingActions,
+            ["copy_to_clipboard", "paste_from_clipboard", "select_all"]
+        )
+    }
+
+    @MainActor
+    func testRuntimeHostedViewTracksPointerScrollAndPressureEvents() throws {
+        let runtime = InspectableGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
+        let pane = Pane(title: "Runtime", session: session)
+
+        _ = try bridge.attach(session: session, to: pane)
+        _ = bridge.makeHostedPaneView(for: pane, isFocused: true) { _ in }
+        let runtimeView = try XCTUnwrap(runtime.hostedViews["inspect:\(pane.id.rawValue)"])
+        runtimeView.frame = NSRect(x: 0, y: 0, width: 320, height: 200)
+
+        let moved = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .mouseMoved,
+                location: NSPoint(x: 40, y: 60),
+                modifierFlags: [.option],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                eventNumber: 2,
+                clickCount: 0,
+                pressure: 0
+            )
+        )
+        runtimeView.mouseMoved(with: moved)
+        runtimeView.mouseExited(with: moved)
+
+        runtimeView.mouseScrollHandler?(3.5, -7.0, true, .changed)
+
+        runtimeView.mousePressureHandler?(2, 0.75)
+
+        XCTAssertEqual(runtime.mousePositions.count, 2)
+        XCTAssertEqual(runtime.mousePositions.first?.point, CGPoint(x: 40, y: 60))
+        XCTAssertNil(runtime.mousePositions.last?.point)
+        XCTAssertEqual(runtime.mouseScrolls.count, 1)
+        XCTAssertEqual(runtime.mouseScrolls.first?.x, 3.5)
+        XCTAssertEqual(runtime.mouseScrolls.first?.y, -7.0)
+        XCTAssertEqual(runtime.mouseScrolls.first?.precise, true)
+        XCTAssertEqual(runtime.mouseScrolls.first?.momentum, .changed)
+        XCTAssertEqual(runtime.mousePressures.count, 1)
+        XCTAssertEqual(runtime.mousePressures.first?.stage, 2)
+        XCTAssertEqual(runtime.mousePressures.first?.pressure, 0.75)
+    }
+
+    #if canImport(CGhostty)
+    @MainActor
+    func testHostedRuntimeClipboardReadsStandardPasteboardText() {
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name(UUID().uuidString))
+        pasteboard.clearContents()
+        pasteboard.setString("runtime paste", forType: .string)
+
+        let result = HostedRuntimeClipboard.readString(for: GHOSTTY_CLIPBOARD_STANDARD) { location in
+            guard location == GHOSTTY_CLIPBOARD_STANDARD else { return nil }
+            return pasteboard
+        }
+
+        XCTAssertEqual(result, "runtime paste")
+    }
+
+    @MainActor
+    func testHostedRuntimeClipboardWritesTextPlainContentToStandardPasteboard() {
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name(UUID().uuidString))
+        pasteboard.clearContents()
+
+        let textPlain = Array("copied from runtime".utf8CString)
+        let mime = Array("text/plain".utf8CString)
+        mime.withUnsafeBufferPointer { mimeBuffer in
+            textPlain.withUnsafeBufferPointer { textBuffer in
+                var content = ghostty_clipboard_content_s(
+                    mime: mimeBuffer.baseAddress,
+                    data: textBuffer.baseAddress
+                )
+
+                withUnsafePointer(to: &content) { pointer in
+                    let buffer = UnsafeBufferPointer(start: pointer, count: 1)
+                    HostedRuntimeClipboard.write(buffer, for: GHOSTTY_CLIPBOARD_STANDARD) { location in
+                        guard location == GHOSTTY_CLIPBOARD_STANDARD else { return nil }
+                        return pasteboard
+                    }
+                }
+            }
+        }
+
+        XCTAssertEqual(pasteboard.string(forType: .string), "copied from runtime")
+    }
+
+    @MainActor
+    func testHostedRuntimeClipboardRejectsSelectionClipboardOnMacOS() {
+        let selectionRead = HostedRuntimeClipboard.readString(for: GHOSTTY_CLIPBOARD_SELECTION) { _ in
+            XCTFail("selection clipboard should not request a pasteboard")
+            return nil
+        }
+
+        XCTAssertNil(selectionRead)
+    }
+    #endif
+
+    @MainActor
+    func testRuntimeHostedViewPublishesPreeditAndCommitThroughTextInputClient() throws {
+        let runtime = InspectableGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
+        let pane = Pane(title: "Runtime", session: session)
+
+        _ = try bridge.attach(session: session, to: pane)
+        _ = bridge.makeHostedPaneView(for: pane, isFocused: true) { _ in }
+        let runtimeView = try XCTUnwrap(runtime.hostedViews["inspect:\(pane.id.rawValue)"])
+
+        runtimeView.setMarkedText("¨", selectedRange: NSRange(), replacementRange: NSRange())
+        runtimeView.insertText("é", replacementRange: NSRange())
+
+        XCTAssertEqual(runtime.preeditUpdates, ["¨", nil])
+        XCTAssertEqual(runtime.committedTexts, ["é"])
+    }
+
+    @MainActor
+    func testRuntimeHostedViewCancelsPreeditWithoutCommittedText() throws {
+        let runtime = InspectableGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
+        let pane = Pane(title: "Runtime", session: session)
+
+        _ = try bridge.attach(session: session, to: pane)
+        _ = bridge.makeHostedPaneView(for: pane, isFocused: true) { _ in }
+        let runtimeView = try XCTUnwrap(runtime.hostedViews["inspect:\(pane.id.rawValue)"])
+
+        runtimeView.setMarkedText("^", selectedRange: NSRange(), replacementRange: NSRange())
+        runtimeView.unmarkText()
+
+        XCTAssertEqual(runtime.preeditUpdates, ["^", nil])
+        XCTAssertTrue(runtime.committedTexts.isEmpty)
+    }
+
+    @MainActor
+    func testRuntimeHostedViewUsesTranslatedModifiersOnlyForTextGeneration() throws {
+        let runtime = InspectableGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
+        let pane = Pane(title: "Runtime", session: session)
+
+        _ = try bridge.attach(session: session, to: pane)
+        _ = bridge.makeHostedPaneView(for: pane, isFocused: true) { _ in }
+        let runtimeView = try XCTUnwrap(runtime.hostedViews["inspect:\(pane.id.rawValue)"])
+        runtimeView.translatedKeyEventProvider = { event in
+            NSEvent.keyEvent(
+                with: event.type,
+                location: event.locationInWindow,
+                modifierFlags: [],
+                timestamp: event.timestamp,
+                windowNumber: event.windowNumber,
+                context: nil,
+                characters: event.characters(byApplyingModifiers: []) ?? "",
+                charactersIgnoringModifiers: event.charactersIgnoringModifiers ?? "",
+                isARepeat: event.isARepeat,
+                keyCode: event.keyCode
+            ) ?? event
+        }
+
+        let event = try XCTUnwrap(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.option, NSEvent.ModifierFlags(rawValue: UInt(NX_DEVICERALTKEYMASK))],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                characters: "∂",
+                charactersIgnoringModifiers: "d",
+                isARepeat: false,
+                keyCode: 2
+            )
+        )
+
+        runtimeView.keyDown(with: event)
+
+        let handledEvent = try XCTUnwrap(runtime.accumulatedEvents.first)
+        XCTAssertTrue(handledEvent.modifiers.contains(.rightOption))
+        XCTAssertEqual(handledEvent.text, "d")
+    }
+
+    @MainActor
+    func testRuntimeHostedViewSupportsLeftOptionAltTranslationFixture() throws {
+        let runtime = InspectableGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
+        let pane = Pane(title: "Runtime", session: session)
+
+        _ = try bridge.attach(session: session, to: pane)
+        _ = bridge.makeHostedPaneView(for: pane, isFocused: true) { _ in }
+        let runtimeView = try XCTUnwrap(runtime.hostedViews["inspect:\(pane.id.rawValue)"])
+        runtimeView.translatedKeyEventProvider = { event in
+            NSEvent.keyEvent(
+                with: event.type,
+                location: event.locationInWindow,
+                modifierFlags: [],
+                timestamp: event.timestamp,
+                windowNumber: event.windowNumber,
+                context: nil,
+                characters: event.characters(byApplyingModifiers: []) ?? "",
+                charactersIgnoringModifiers: event.charactersIgnoringModifiers ?? "",
+                isARepeat: event.isARepeat,
+                keyCode: event.keyCode
+            ) ?? event
+        }
+
+        let event = try XCTUnwrap(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.option],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                characters: "@",
+                charactersIgnoringModifiers: "2",
+                isARepeat: false,
+                keyCode: 19
+            )
+        )
+
+        runtimeView.keyDown(with: event)
+
+        let handledEvent = try XCTUnwrap(runtime.accumulatedEvents.last)
+        XCTAssertTrue(handledEvent.modifiers.contains(.leftOption))
+        XCTAssertEqual(handledEvent.text, "2")
+    }
+
+    @MainActor
+    func testRuntimeHostedViewForwardsInjectedLayoutTextWithoutHardcodedMap() throws {
+        let runtime = InspectableGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
+        let pane = Pane(title: "Runtime", session: session)
+
+        _ = try bridge.attach(session: session, to: pane)
+        _ = bridge.makeHostedPaneView(for: pane, isFocused: true) { _ in }
+        let runtimeView = try XCTUnwrap(runtime.hostedViews["inspect:\(pane.id.rawValue)"])
+
+        let fixture = "ß"
+        runtimeView.translatedKeyEventProvider = { event in
+            NSEvent.keyEvent(
+                with: event.type,
+                location: event.locationInWindow,
+                modifierFlags: event.modifierFlags,
+                timestamp: event.timestamp,
+                windowNumber: event.windowNumber,
+                context: nil,
+                characters: fixture,
+                charactersIgnoringModifiers: event.charactersIgnoringModifiers ?? "",
+                isARepeat: event.isARepeat,
+                keyCode: event.keyCode
+            ) ?? event
+        }
+
+        let event = try XCTUnwrap(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.option],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                characters: fixture,
+                charactersIgnoringModifiers: "s",
+                isARepeat: false,
+                keyCode: 1
+            )
+        )
+
+        runtimeView.keyDown(with: event)
+
+        XCTAssertEqual(runtime.accumulatedEvents.last?.text, fixture)
+    }
+
+    @MainActor
+    func testRuntimeHostedViewPreservesSwedishIsoLeftOptionFixtureWhenRightActsAsAlt() throws {
+        let runtime = InspectableGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
+        let pane = Pane(title: "Runtime", session: session)
+
+        _ = try bridge.attach(session: session, to: pane)
+        _ = bridge.makeHostedPaneView(for: pane, isFocused: true) { _ in }
+        let runtimeView = try XCTUnwrap(runtime.hostedViews["inspect:\(pane.id.rawValue)"])
+
+        let event = try XCTUnwrap(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.option],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                characters: "@",
+                charactersIgnoringModifiers: "2",
+                isARepeat: false,
+                keyCode: 19
+            )
+        )
+
+        runtimeView.keyDown(with: event)
+
+        let handledEvent = try XCTUnwrap(runtime.accumulatedEvents.last)
+        XCTAssertTrue(handledEvent.modifiers.contains(.leftOption))
+        XCTAssertEqual(handledEvent.text, "@")
+    }
+
     func testOnlyTerminalBridgeMayMentionCGhostty() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -161,6 +598,96 @@ final class OmuxTerminalBridgeTests: XCTestCase {
 
             let contents = try String(contentsOf: fileURL)
             XCTAssertFalse(contents.contains("CGhostty"), "CGhostty leaked outside OmuxTerminalBridge in \(fileURL.path)")
+        }
+    }
+
+    func testTerminalBridgeDoesNotLoadUserGhosttyDefaults() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let bridgeSourcesURL = repositoryRoot.appending(path: "Sources/OmuxTerminalBridge")
+        let enumerator = FileManager.default.enumerator(
+            at: bridgeSourcesURL,
+            includingPropertiesForKeys: nil
+        )
+
+        while let fileURL = enumerator?.nextObject() as? URL {
+            guard fileURL.pathExtension == "swift" else {
+                continue
+            }
+
+            let contents = try String(contentsOf: fileURL)
+            XCTAssertFalse(
+                contents.contains("ghostty_config_load_default_files"),
+                "Bridge must not read user Ghostty defaults in \(fileURL.path)"
+            )
+        }
+    }
+
+    func testApplyCompiledConfigUsesGeneratedThemeValues() throws {
+        let runtime = InspectableGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let directory = try temporaryDirectory()
+        defer { cleanup(directory) }
+
+        let theme = makeTheme(name: "bridge")
+        let compiler = OmuxThemeCompiler(
+            buildVersion: "test-build",
+            generatedGhosttyDirectoryURL: directory
+        )
+        let output = compiler.compile(theme: theme, config: OmuxConfig.defaults)
+        let fileURL = try compiler.write(output: output)
+
+        _ = try bridge.applyCompiledConfig(path: fileURL)
+
+        XCTAssertEqual(runtime.visibleBackground, theme.tokens[.backgroundCanvas]?.hexString)
+        XCTAssertEqual(runtime.visibleForeground, theme.tokens[.foregroundPrimary]?.hexString)
+        XCTAssertEqual(runtime.visiblePalette[0], theme.tokens[.ansiBlack]?.hexString)
+        XCTAssertEqual(runtime.visiblePalette[15], theme.tokens[.ansiBrightWhite]?.hexString)
+    }
+
+    func testRefreshCompiledConfigKeepsRunningSessionAlive() throws {
+        let runtime = InspectableGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
+        let pane = Pane(title: "Main", session: session)
+        let directory = try temporaryDirectory()
+        defer { cleanup(directory) }
+
+        _ = try bridge.attach(session: session, to: pane)
+        let compiler = OmuxThemeCompiler(
+            buildVersion: "test-build",
+            generatedGhosttyDirectoryURL: directory
+        )
+        let output = compiler.compile(theme: makeTheme(name: "refresh"), config: OmuxConfig.defaults)
+        let fileURL = try compiler.write(output: output)
+
+        _ = try bridge.refreshCompiledConfig(path: fileURL)
+
+        XCTAssertTrue(runtime.ownsSession(for: "inspect:\(pane.id.rawValue)"))
+        XCTAssertEqual(bridge.attachedSession(for: pane.id), session.id)
+        XCTAssertNotNil(bridge.snapshot(for: pane.id))
+    }
+
+    func testBuiltInThemesDriveRuntimeBackgrounds() throws {
+        let runtime = InspectableGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let directory = try temporaryDirectory()
+        defer { cleanup(directory) }
+
+        let compiler = OmuxThemeCompiler(
+            buildVersion: "test-build",
+            generatedGhosttyDirectoryURL: directory
+        )
+        let (themes, diagnostics) = OmuxThemeRegistry().loadBuiltInThemes()
+        XCTAssertFalse(diagnostics.contains(where: { $0.severity.isError }))
+
+        for theme in themes {
+            let output = compiler.compile(theme: theme, config: OmuxConfig.defaults)
+            let fileURL = try compiler.write(output: output)
+            _ = try bridge.applyCompiledConfig(path: fileURL)
+            XCTAssertEqual(runtime.visibleBackground, theme.tokens[.backgroundCanvas]?.hexString, "theme \(theme.name)")
         }
     }
 
@@ -284,6 +811,47 @@ final class OmuxTerminalBridgeTests: XCTestCase {
         XCTAssertEqual(snapshot.rows, 40)
     }
 
+    func testBridgePublishesTypedTerminalActionEvents() throws {
+        let runtime = InspectableGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
+        let pane = Pane(title: "Main", session: session)
+
+        let attachment = try bridge.attach(session: session, to: pane)
+        let receivedEvent = LockedValue<TerminalActionEvent?>(nil)
+        let token = bridge.addTerminalActionObserver { event in
+            receivedEvent.value = event
+        }
+
+        runtime.emit(.workingDirectoryChanged("/var/tmp"), on: attachment.runtimeSurfaceID)
+
+        XCTAssertEqual(receivedEvent.value?.paneID, pane.id)
+        XCTAssertEqual(receivedEvent.value?.sessionID, session.id)
+        XCTAssertEqual(receivedEvent.value?.runtimeSurfaceID, attachment.runtimeSurfaceID)
+        XCTAssertEqual(receivedEvent.value?.action, .workingDirectoryChanged("/var/tmp"))
+        XCTAssertEqual(receivedEvent.value?.payload.objectValue?["path"], .string("/var/tmp"))
+        bridge.removeTerminalActionObserver(token: token)
+    }
+
+    @MainActor
+    func testFallbackRuntimeDoesNotEmitSyntheticTerminalActionEvents() throws {
+        let bridge = GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime())
+        let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
+        let pane = Pane(title: "Main", session: session)
+
+        _ = try bridge.attach(session: session, to: pane)
+        let expectation = expectation(description: "no terminal action event")
+        expectation.isInverted = true
+        let token = bridge.addTerminalActionObserver { _ in
+            expectation.fulfill()
+        }
+
+        try bridge.run(command: "printf 'hello'", inPane: pane.id)
+
+        waitForExpectations(timeout: 0.2)
+        bridge.removeTerminalActionObserver(token: token)
+    }
+
     @MainActor
     func testDirectInputAndDeleteEditTheLiveShellCommand() throws {
         let bridge = GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime())
@@ -393,4 +961,219 @@ final class OmuxTerminalBridgeTests: XCTestCase {
         waitForExpectations(timeout: 3)
         bridge.removeObserver(for: pane.id, token: token)
     }
+}
+
+private final class InspectableGhosttyRuntime: GhosttyRuntime {
+    private var sessions: [String: SessionDescriptor] = [:]
+    private var terminalActionHandler: (@Sendable (RuntimeTerminalActionRecord) -> Bool)?
+    private(set) var visibleBackground: String?
+    private(set) var visibleForeground: String?
+    private(set) var visiblePalette: [Int: String] = [:]
+    private(set) var hostedViews: [String: InspectableRuntimeSurfaceView] = [:]
+    private(set) var committedTexts: [String] = []
+    private(set) var preeditUpdates: [String?] = []
+    private(set) var accumulatedEvents: [NormalizedKeyEvent] = []
+    private(set) var bindingActions: [String] = []
+    private(set) var mouseButtons: [(state: ghostty_input_mouse_state_e, buttonNumber: Int, modifiers: KeyModifiers)] = []
+    private(set) var mousePositions: [(point: CGPoint?, modifiers: KeyModifiers)] = []
+    private(set) var mouseScrolls: [(x: Double, y: Double, precise: Bool, momentum: NSEvent.Phase)] = []
+    private(set) var mousePressures: [(stage: Int, pressure: Double)] = []
+
+    func applyCompiledConfig(path: URL) throws -> [OmuxConfigDiagnostic] {
+        try loadVisibleState(from: path)
+        return []
+    }
+
+    func refreshCompiledConfig(path: URL) throws -> [OmuxConfigDiagnostic] {
+        try loadVisibleState(from: path)
+        return []
+    }
+
+    func createSurface(for paneID: PaneID) throws -> String {
+        "inspect:\(paneID.rawValue)"
+    }
+
+    func attach(session: SessionDescriptor, to runtimeSurfaceID: String) throws {
+        sessions[runtimeSurfaceID] = session
+    }
+
+    func destroySurface(runtimeSurfaceID: String) throws {
+        sessions.removeValue(forKey: runtimeSurfaceID)
+    }
+
+    @MainActor
+    func makeHostedSurfaceView(for paneID: PaneID, runtimeSurfaceID: String) -> NSView? {
+        _ = paneID
+        if let existing = hostedViews[runtimeSurfaceID] {
+            return existing
+        }
+        let view = InspectableRuntimeSurfaceView(frame: .zero)
+        view.committedTextHandler = { [weak self] text in
+            self?.committedTexts.append(text)
+        }
+        view.accumulatedTextHandler = { [weak self] event, text in
+            var accumulatedEvent = event
+            accumulatedEvent.text = text
+            self?.accumulatedEvents.append(accumulatedEvent)
+        }
+        view.preeditHandler = { [weak self] text in
+            self?.preeditUpdates.append(text)
+        }
+        view.imeRectProvider = {
+            NSRect(x: 10, y: 20, width: 0, height: 18)
+        }
+        view.copyHandler = { [weak self] in
+            self?.bindingActions.append("copy_to_clipboard")
+        }
+        view.pasteHandler = { [weak self] in
+            self?.bindingActions.append("paste_from_clipboard")
+        }
+        view.selectAllHandler = { [weak self] in
+            self?.bindingActions.append("select_all")
+        }
+        view.mouseButtonHandler = { [weak self] state, buttonNumber, modifiers in
+            self?.mouseButtons.append((state: state, buttonNumber: buttonNumber, modifiers: modifiers))
+            return true
+        }
+        view.mousePositionHandler = { [weak self] point, modifiers in
+            self?.mousePositions.append((point: point, modifiers: modifiers))
+        }
+        view.mouseScrollHandler = { [weak self] x, y, precise, momentum in
+            self?.mouseScrolls.append((x: x, y: y, precise: precise, momentum: momentum))
+        }
+        view.mousePressureHandler = { [weak self] stage, pressure in
+            self?.mousePressures.append((stage: stage, pressure: pressure))
+        }
+        hostedViews[runtimeSurfaceID] = view
+        return view
+    }
+
+    func ownsSession(for runtimeSurfaceID: String) -> Bool {
+        sessions[runtimeSurfaceID] != nil
+    }
+
+    func send(text: String, to runtimeSurfaceID: String) throws {
+        _ = text
+        _ = runtimeSurfaceID
+    }
+
+    func handle(_ event: NormalizedKeyEvent, on runtimeSurfaceID: String) throws {
+        _ = event
+        _ = runtimeSurfaceID
+    }
+
+    func resizeSurface(runtimeSurfaceID: String, columns: Int, rows: Int) throws {
+        _ = runtimeSurfaceID
+        _ = columns
+        _ = rows
+    }
+
+    func setSurfaceFocused(runtimeSurfaceID: String, focused: Bool) {
+        _ = runtimeSurfaceID
+        _ = focused
+    }
+
+    func setTerminalActionHandler(
+        _ handler: (@Sendable (RuntimeTerminalActionRecord) -> Bool)?
+    ) {
+        terminalActionHandler = handler
+    }
+
+    func snapshot(
+        paneID: PaneID,
+        sessionID: SessionID,
+        descriptor: SessionDescriptor,
+        runtimeSurfaceID: String,
+        fallbackSize: TerminalSize
+    ) -> TerminalSessionSnapshot? {
+        guard sessions[runtimeSurfaceID] != nil else {
+            return nil
+        }
+
+        return TerminalSessionSnapshot(
+            paneID: paneID,
+            sessionID: sessionID,
+            runtimeSurfaceID: runtimeSurfaceID,
+            transcript: "runtime session",
+            currentInput: "",
+            shell: descriptor.shell,
+            workingDirectory: descriptor.workingDirectory,
+            columns: fallbackSize.columns,
+            rows: fallbackSize.rows
+        )
+    }
+
+    func emit(_ action: TerminalAction, on runtimeSurfaceID: String) {
+        _ = terminalActionHandler?(RuntimeTerminalActionRecord(runtimeSurfaceID: runtimeSurfaceID, action: action))
+    }
+
+    private func loadVisibleState(from path: URL) throws {
+        let contents = try String(contentsOf: path, encoding: .utf8)
+        visiblePalette = [:]
+        for line in contents.split(separator: "\n") {
+            if line.hasPrefix("background = ") {
+                visibleBackground = String(line.replacingOccurrences(of: "background = ", with: ""))
+            } else if line.hasPrefix("foreground = ") {
+                visibleForeground = String(line.replacingOccurrences(of: "foreground = ", with: ""))
+            } else if line.hasPrefix("palette = ") {
+                let value = line.replacingOccurrences(of: "palette = ", with: "")
+                let parts = value.split(separator: "=", maxSplits: 1).map(String.init)
+                if parts.count == 2, let index = Int(parts[0]) {
+                    visiblePalette[index] = parts[1]
+                }
+            }
+        }
+    }
+}
+
+private final class InspectableRuntimeSurfaceView: RuntimeTerminalHostView {}
+
+private final class LockedValue<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: Value
+
+    init(_ value: Value) {
+        storage = value
+    }
+
+    var value: Value {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return storage
+        }
+        set {
+            lock.lock()
+            storage = newValue
+            lock.unlock()
+        }
+    }
+}
+
+private func makeTheme(name: String) -> OmuxTheme {
+    let seed = UInt8(abs(name.hashValue) % 160 + 40)
+    let tokens = Dictionary(
+        uniqueKeysWithValues: ThemeToken.allCases.map { token in
+            let offset = UInt8(ThemeToken.allCases.firstIndex(of: token) ?? 0)
+            return (
+                token,
+                ThemeColor(
+                    red: seed &+ offset,
+                    green: seed &+ 1 &+ offset,
+                    blue: seed &+ 2 &+ offset
+                )
+            )
+        }
+    )
+    return OmuxTheme(schema: 1, name: name, displayName: name.capitalized, tokens: tokens)
+}
+
+private func temporaryDirectory() throws -> URL {
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    return url
+}
+
+private func cleanup(_ url: URL) {
+    try? FileManager.default.removeItem(at: url)
 }

@@ -23,11 +23,95 @@ public struct Pane: Equatable, Codable, Sendable {
     public let id: PaneID
     public var title: String
     public var session: SessionDescriptor
+    public var terminalState: PaneTerminalState
 
-    public init(id: PaneID = PaneID(), title: String, session: SessionDescriptor) {
+    public init(
+        id: PaneID = PaneID(),
+        title: String,
+        session: SessionDescriptor,
+        terminalState: PaneTerminalState = PaneTerminalState()
+    ) {
         self.id = id
         self.title = title
         self.session = session
+        self.terminalState = terminalState
+    }
+}
+
+public enum PaneProgressState: String, Codable, Sendable {
+    case active
+    case error
+    case indeterminate
+    case paused
+}
+
+public struct PaneProgress: Equatable, Codable, Sendable {
+    public var state: PaneProgressState
+    public var value: Int?
+
+    public init(state: PaneProgressState, value: Int? = nil) {
+        self.state = state
+        self.value = value
+    }
+}
+
+public struct PaneExitStatus: Equatable, Codable, Sendable {
+    public var exitCode: Int
+    public var elapsedMilliseconds: UInt64
+
+    public init(exitCode: Int, elapsedMilliseconds: UInt64) {
+        self.exitCode = exitCode
+        self.elapsedMilliseconds = elapsedMilliseconds
+    }
+}
+
+public struct PaneTerminalState: Equatable, Codable, Sendable {
+    public var reportedWorkingDirectory: String?
+    public var progress: PaneProgress?
+    public var lastExit: PaneExitStatus?
+    public var rendererHealthy: Bool?
+
+    public init(
+        reportedWorkingDirectory: String? = nil,
+        progress: PaneProgress? = nil,
+        lastExit: PaneExitStatus? = nil,
+        rendererHealthy: Bool? = nil
+    ) {
+        self.reportedWorkingDirectory = reportedWorkingDirectory
+        self.progress = progress
+        self.lastExit = lastExit
+        self.rendererHealthy = rendererHealthy
+    }
+
+    public var statusSummary: String? {
+        var parts: [String] = []
+        if let progress {
+            switch progress.state {
+            case .active:
+                if let value = progress.value {
+                    parts.append("Progress \(value)%")
+                } else {
+                    parts.append("Progress")
+                }
+            case .error:
+                parts.append("Progress error")
+            case .indeterminate:
+                parts.append("Progress indeterminate")
+            case .paused:
+                parts.append("Progress paused")
+            }
+        }
+        if let lastExit {
+            parts.append("Exited \(lastExit.exitCode)")
+        }
+        if rendererHealthy == false {
+            parts.append("Renderer unhealthy")
+        }
+
+        guard parts.isEmpty == false else {
+            return nil
+        }
+        return parts.joined(separator: " · ")
     }
 }
 
@@ -89,6 +173,11 @@ public enum PaneSplitAxis: String, Codable, Sendable {
 }
 
 public indirect enum TabLayoutNode: Equatable, Codable, Sendable {
+    private struct PaneDetachResult {
+        let pane: Pane
+        let collapseNode: Bool
+    }
+
     case paneStack(PaneStack)
     case split(axis: PaneSplitAxis, children: [TabLayoutNode])
 
@@ -154,6 +243,30 @@ public indirect enum TabLayoutNode: Equatable, Codable, Sendable {
 
     public func containsPane(id: PaneID) -> Bool {
         pane(id: id) != nil
+    }
+
+    @discardableResult
+    public mutating func updatePane(
+        _ paneID: PaneID,
+        transform: (inout Pane) -> Void
+    ) -> Bool {
+        switch self {
+        case .paneStack(var paneStack):
+            guard let index = paneStack.panes.firstIndex(where: { $0.id == paneID }) else {
+                return false
+            }
+            transform(&paneStack.panes[index])
+            self = .paneStack(paneStack)
+            return true
+        case .split(let axis, var children):
+            for index in children.indices {
+                if children[index].updatePane(paneID, transform: transform) {
+                    self = .split(axis: axis, children: children)
+                    return true
+                }
+            }
+            return false
+        }
     }
 
     public func containsSession(id: SessionID) -> Bool {
@@ -235,6 +348,10 @@ public indirect enum TabLayoutNode: Equatable, Codable, Sendable {
         }
     }
 
+    public mutating func detachPane(id paneID: PaneID) -> Pane? {
+        detachPaneResult(id: paneID)?.pane
+    }
+
     @discardableResult
     public mutating func split(
         stackID: PaneStackID,
@@ -260,6 +377,45 @@ public indirect enum TabLayoutNode: Equatable, Codable, Sendable {
             return false
         }
     }
+
+    private mutating func detachPaneResult(id paneID: PaneID) -> PaneDetachResult? {
+        switch self {
+        case .paneStack(var paneStack):
+            guard let index = paneStack.panes.firstIndex(where: { $0.id == paneID }) else {
+                return nil
+            }
+
+            let removedPane = paneStack.panes.remove(at: index)
+            if paneStack.panes.isEmpty {
+                return PaneDetachResult(pane: removedPane, collapseNode: true)
+            }
+
+            if paneStack.focusedPaneID == removedPane.id {
+                paneStack.focusedPaneID = paneStack.panes[min(index, paneStack.panes.count - 1)].id
+            }
+
+            self = .paneStack(paneStack)
+            return PaneDetachResult(pane: removedPane, collapseNode: false)
+
+        case .split(let axis, var children):
+            for index in children.indices {
+                if let result = children[index].detachPaneResult(id: paneID) {
+                    if result.collapseNode {
+                        children.remove(at: index)
+                    }
+
+                    if children.isEmpty {
+                        return PaneDetachResult(pane: result.pane, collapseNode: true)
+                    }
+
+                    self = children.count == 1 ? children[0] : .split(axis: axis, children: children)
+                    return PaneDetachResult(pane: result.pane, collapseNode: false)
+                }
+            }
+
+            return nil
+        }
+    }
 }
 
 public struct Tab: Equatable, Codable, Sendable {
@@ -277,6 +433,18 @@ public struct Tab: Equatable, Codable, Sendable {
         self.id = id
         self.title = title
         self.rootLayout = Self.makeInitialLayout(from: panes)
+        self.focusedPaneID = focusedPaneID
+    }
+
+    public init(
+        id: TabID = TabID(),
+        title: String,
+        rootLayout: TabLayoutNode,
+        focusedPaneID: PaneID
+    ) {
+        self.id = id
+        self.title = title
+        self.rootLayout = rootLayout
         self.focusedPaneID = focusedPaneID
     }
 
@@ -337,6 +505,17 @@ public struct Tab: Equatable, Codable, Sendable {
         return removedPane
     }
 
+    public mutating func removePane(_ paneID: PaneID) -> Pane? {
+        guard let removedPane = rootLayout.detachPane(id: paneID),
+              let nextFocusedPaneID = rootLayout.panes.first?.id
+        else {
+            return nil
+        }
+
+        focusedPaneID = nextFocusedPaneID
+        return removedPane
+    }
+
     @discardableResult
     public mutating func splitFocusedPane(_ pane: Pane, axis: PaneSplitAxis, focus: Bool = true) -> Bool {
         guard let focusedStackID = focusedPaneStack?.id else {
@@ -374,10 +553,27 @@ public struct Tab: Equatable, Codable, Sendable {
 
 public struct Workspace: Equatable, Codable, Sendable {
     public let id: WorkspaceID
-    public var name: String
+    public var generatedName: String
+    public var customName: String?
     public var rootPath: String
     public var tabs: [Tab]
     public var focusedTabID: TabID
+
+    public init(
+        id: WorkspaceID = WorkspaceID(),
+        generatedName: String,
+        customName: String? = nil,
+        rootPath: String,
+        tabs: [Tab],
+        focusedTabID: TabID
+    ) {
+        self.id = id
+        self.generatedName = generatedName
+        self.customName = customName
+        self.rootPath = rootPath
+        self.tabs = tabs
+        self.focusedTabID = focusedTabID
+    }
 
     public init(
         id: WorkspaceID = WorkspaceID(),
@@ -386,11 +582,22 @@ public struct Workspace: Equatable, Codable, Sendable {
         tabs: [Tab],
         focusedTabID: TabID
     ) {
-        self.id = id
-        self.name = name
-        self.rootPath = rootPath
-        self.tabs = tabs
-        self.focusedTabID = focusedTabID
+        self.init(
+            id: id,
+            generatedName: name,
+            customName: nil,
+            rootPath: rootPath,
+            tabs: tabs,
+            focusedTabID: focusedTabID
+        )
+    }
+
+    public var name: String {
+        customName ?? generatedName
+    }
+
+    public var hasCustomName: Bool {
+        customName != nil
     }
 
     public var focusedTab: Tab? {
@@ -446,6 +653,20 @@ public struct Workspace: Equatable, Codable, Sendable {
         }
     }
 
+    public mutating func closeTab(_ tabID: TabID) -> Tab? {
+        guard tabs.count > 1,
+              let index = tabs.firstIndex(where: { $0.id == tabID })
+        else {
+            return nil
+        }
+
+        let removedTab = tabs.remove(at: index)
+        if focusedTabID == removedTab.id {
+            focusedTabID = tabs[min(index, tabs.count - 1)].id
+        }
+        return removedTab
+    }
+
     @discardableResult
     public mutating func createPaneInFocusedStack(_ pane: Pane) -> Bool {
         guard let tabIndex = tabs.firstIndex(where: { $0.id == focusedTabID }) else {
@@ -475,6 +696,19 @@ public struct Workspace: Equatable, Codable, Sendable {
     }
 
     @discardableResult
+    public mutating func updatePane(
+        _ paneID: PaneID,
+        transform: (inout Pane) -> Void
+    ) -> Bool {
+        for tabIndex in tabs.indices {
+            if tabs[tabIndex].rootLayout.updatePane(paneID, transform: transform) {
+                return true
+            }
+        }
+        return false
+    }
+
+    @discardableResult
     public mutating func appendPaneToFocusedTab(_ pane: Pane, axis: PaneSplitAxis? = nil) -> Bool {
         guard let tabIndex = tabs.firstIndex(where: { $0.id == focusedTabID }) else {
             return false
@@ -487,6 +721,9 @@ public struct Workspace: Equatable, Codable, Sendable {
 public struct WorkspaceSummary: Equatable, Codable, Sendable {
     public let id: WorkspaceID
     public let name: String
+    public let generatedName: String
+    public let customName: String?
+    public let hasCustomName: Bool
     public let rootPath: String
     public let tabCount: Int
     public let paneCount: Int
@@ -494,6 +731,9 @@ public struct WorkspaceSummary: Equatable, Codable, Sendable {
     public init(workspace: Workspace) {
         self.id = workspace.id
         self.name = workspace.name
+        self.generatedName = workspace.generatedName
+        self.customName = workspace.customName
+        self.hasCustomName = workspace.hasCustomName
         self.rootPath = workspace.rootPath
         self.tabCount = workspace.tabs.count
         self.paneCount = workspace.tabs.reduce(into: 0) { $0 += $1.panes.count }
