@@ -544,6 +544,39 @@ final class OmuxAppShellTests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceWindowPreservesFocusedPaneResponderAcrossTerminalStateUpdates() throws {
+        let runtime = ActionEmittingGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let controller = WorkspaceController(
+            bridge: bridge,
+            hookRunner: ExternalHookRunner()
+        )
+
+        _ = try controller.openWorkspace(at: "/tmp")
+        let splitWorkspace = try XCTUnwrap(controller.splitFocusedPane())
+        let secondPane = try XCTUnwrap(splitWorkspace.focusedPane)
+        let secondSurfaceID = try XCTUnwrap(bridge.surface(for: secondPane.id)?.runtimeSurfaceID)
+
+        let windowController = WorkspaceWindowController(workspace: splitWorkspace, controller: controller)
+        let window = try XCTUnwrap(windowController.window)
+        let rootView = try XCTUnwrap(window.contentViewController?.view)
+        rootView.layoutSubtreeIfNeeded()
+
+        var paneViews = findViews(ofType: HostedTerminalPaneView.self, in: rootView)
+        XCTAssertEqual(paneViews.count, 2)
+        let secondPaneView = try XCTUnwrap(paneViews.last)
+        window.makeFirstResponder(secondPaneView.focusTarget)
+
+        runtime.emit(.workingDirectoryChanged("/var/tmp"), on: secondSurfaceID)
+        windowController.update(workspace: try XCTUnwrap(controller.activeWorkspace()))
+        rootView.layoutSubtreeIfNeeded()
+
+        paneViews = findViews(ofType: HostedTerminalPaneView.self, in: rootView)
+        XCTAssertEqual(paneViews.count, 2)
+        XCTAssertTrue(window.firstResponder === paneViews.last?.focusTarget)
+    }
+
+    @MainActor
     func testWorkspaceWindowDoesNotDuplicateFocusedPaneTitleAheadOfTabs() throws {
         let controller = WorkspaceController(
             bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),

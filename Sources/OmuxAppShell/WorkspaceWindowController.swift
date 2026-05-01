@@ -76,6 +76,7 @@ final class WorkspaceShellViewController: NSViewController {
     private var currentWorkspace: Workspace?
     private var currentTheme: WorkspaceShellTheme
     private var isSidebarVisible: Bool
+    private var focusRestoreGeneration: UInt = 0
 
     init(
         controller: WorkspaceController,
@@ -167,12 +168,22 @@ final class WorkspaceShellViewController: NSViewController {
         canvasView.render(layoutView: layout?.view, theme: currentTheme)
 
         if let focusedPaneView = layout?.focusedPaneView {
-            DispatchQueue.main.async { [weak self, weak focusedPaneView] in
-                guard let self, let focusedPaneView else {
-                    return
-                }
+            focusRestoreGeneration &+= 1
+            let generation = focusRestoreGeneration
 
-                view.window?.makeFirstResponder(focusedPaneView.focusTarget)
+            if let window = view.window {
+                window.makeFirstResponder(focusedPaneView.focusTarget)
+            } else {
+                DispatchQueue.main.async { [weak self, weak focusedPaneView] in
+                    guard let self,
+                          let focusedPaneView,
+                          self.focusRestoreGeneration == generation
+                    else {
+                        return
+                    }
+
+                    self.view.window?.makeFirstResponder(focusedPaneView.focusTarget)
+                }
             }
         }
     }
