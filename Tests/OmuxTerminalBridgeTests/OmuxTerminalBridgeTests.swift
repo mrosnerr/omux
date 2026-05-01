@@ -227,6 +227,56 @@ final class OmuxTerminalBridgeTests: XCTestCase {
     }
 
     @MainActor
+    func testRuntimeHostedViewReleasesStaleMouseButtonsBeforeHoverMoves() throws {
+        let runtime = InspectableGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
+        let pane = Pane(title: "Runtime", session: session)
+
+        _ = try bridge.attach(session: session, to: pane)
+        _ = bridge.makeHostedPaneView(for: pane, isFocused: true) { _ in }
+        let runtimeView = try XCTUnwrap(runtime.hostedViews["inspect:\(pane.id.rawValue)"])
+        runtimeView.frame = NSRect(x: 0, y: 0, width: 320, height: 200)
+        runtimeView.pressedMouseButtonsProvider = { 0 }
+
+        let mouseDown = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .leftMouseDown,
+                location: NSPoint(x: 24, y: 32),
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                eventNumber: 1,
+                clickCount: 1,
+                pressure: 1
+            )
+        )
+        runtimeView.mouseDown(with: mouseDown)
+
+        let moved = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .mouseMoved,
+                location: NSPoint(x: 40, y: 60),
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                eventNumber: 2,
+                clickCount: 0,
+                pressure: 0
+            )
+        )
+        runtimeView.mouseMoved(with: moved)
+
+        XCTAssertEqual(runtime.mouseButtons.count, 2)
+        XCTAssertEqual(runtime.mouseButtons.first?.state, GHOSTTY_MOUSE_PRESS)
+        XCTAssertEqual(runtime.mouseButtons.last?.state, GHOSTTY_MOUSE_RELEASE)
+        XCTAssertEqual(runtime.mouseButtons.last?.buttonNumber, 0)
+        XCTAssertEqual(runtime.mousePositions.last?.point, CGPoint(x: 40, y: 60))
+    }
+
+    @MainActor
     func testRuntimeHostedViewTrackingAreaDoesNotReceiveCrossPaneDragEvents() throws {
         let runtime = InspectableGhosttyRuntime()
         let bridge = GhosttyTerminalBridge(runtime: runtime)

@@ -276,6 +276,7 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate {
             action: #selector(removeActivePaneFromMenu(_:)),
             keyEquivalent: "\u{8}"
         )
+        removePaneMenuItem.keyEquivalentModifierMask = [.command, .shift]
         removePaneMenuItem.target = self
         viewMenu.addItem(removePaneMenuItem)
 

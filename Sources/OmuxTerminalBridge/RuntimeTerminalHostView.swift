@@ -29,10 +29,12 @@ class RuntimeTerminalHostView: NSView, RuntimeTerminalInteractionConfiguring {
     var mousePositionHandler: ((CGPoint?, KeyModifiers) -> Void)?
     var mouseScrollHandler: ((Double, Double, Bool, NSEvent.Phase) -> Void)?
     var mousePressureHandler: ((Int, Double) -> Void)?
+    var pressedMouseButtonsProvider: () -> Int = { NSEvent.pressedMouseButtons }
 
     private(set) var markedText = NSMutableAttributedString()
     private var keyTextAccumulator: [String]?
     private var trackingAreaRef: NSTrackingArea?
+    private var pressedMouseButtons: Set<Int> = []
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -93,14 +95,17 @@ class RuntimeTerminalHostView: NSView, RuntimeTerminalInteractionConfiguring {
     }
 
     override func mouseEntered(with event: NSEvent) {
+        reconcilePressedMouseButtons(modifiers: KeyModifiers.appKitModifierFlags(event.modifierFlags))
         mousePositionHandler?(convert(event.locationInWindow, from: nil), KeyModifiers.appKitModifierFlags(event.modifierFlags))
     }
 
     override func mouseExited(with event: NSEvent) {
+        reconcilePressedMouseButtons(modifiers: KeyModifiers.appKitModifierFlags(event.modifierFlags))
         mousePositionHandler?(nil, KeyModifiers.appKitModifierFlags(event.modifierFlags))
     }
 
     override func mouseMoved(with event: NSEvent) {
+        reconcilePressedMouseButtons(modifiers: KeyModifiers.appKitModifierFlags(event.modifierFlags))
         mousePositionHandler?(convert(event.locationInWindow, from: nil), KeyModifiers.appKitModifierFlags(event.modifierFlags))
     }
 
@@ -306,7 +311,28 @@ class RuntimeTerminalHostView: NSView, RuntimeTerminalInteractionConfiguring {
         state: ghostty_input_mouse_state_e,
         buttonNumber: Int
     ) -> Bool {
-        mouseButtonHandler?(state, buttonNumber, KeyModifiers.appKitModifierFlags(event.modifierFlags)) ?? false
+        if state == GHOSTTY_MOUSE_PRESS {
+            pressedMouseButtons.insert(buttonNumber)
+        } else if state == GHOSTTY_MOUSE_RELEASE {
+            pressedMouseButtons.remove(buttonNumber)
+        }
+        return mouseButtonHandler?(state, buttonNumber, KeyModifiers.appKitModifierFlags(event.modifierFlags)) ?? false
+    }
+
+    private func reconcilePressedMouseButtons(modifiers: KeyModifiers) {
+        let actualPressedMask = pressedMouseButtonsProvider()
+        let staleButtons = pressedMouseButtons.filter { button in
+            actualPressedMask & (1 << button) == 0
+        }
+
+        guard staleButtons.isEmpty == false else {
+            return
+        }
+
+        for button in staleButtons.sorted() {
+            pressedMouseButtons.remove(button)
+            _ = mouseButtonHandler?(GHOSTTY_MOUSE_RELEASE, button, modifiers)
+        }
     }
 }
 
