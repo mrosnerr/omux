@@ -28,6 +28,21 @@ OpenMUX exists to reclaim the terminal as a workspace that is fast, reliable, an
 
 It is built for developers who want tools they can understand, adapt, script, and build on, without being forced into a single vendor, workflow, or bloated all-in-one platform.
 
+![OpenMux in action](assets/screen-1.png)
+
+### OpenMUX vs cmux vs Ghostty
+
+We love them all: Ghostty is an excellent terminal and engine, and cmux proves there is real appetite for a richer terminal workspace. OpenMUX is taking a different bet: **the most open, terminal-first, native, and hackable workspace layer built on those lessons**.
+
+| Dimension | OpenMUX | cmux | Ghostty |
+| --- | --- | --- | --- |
+| Core strength | Native terminal workspace with tabs, panes, workspaces, hooks, and automation as first-class concepts | Ambitious integrated workspace with a lot built in | Exceptional terminal emulator and a strong embeddable terminal engine |
+| Product direction | **Terminal-first, AI-friendly, and open by design** | Rich, opinionated workspace experience | Focused terminal app and upstream rendering/runtime foundation |
+| Extensibility | **Open hooks, JSON-RPC control plane, external plugins first** | Powerful product surface, but less centered on an open control plane | Great foundation for hosts and terminal users; higher-level workflow layers are left to the host |
+| Native architecture | **AppKit-first macOS app with a narrow `libghostty` bridge** | Native workspace product built around `libghostty` | Native macOS terminal and the upstream `libghostty` source |
+| Keyboard and input bar | **Treats ISO layouts, right Option, dead keys, and IME behavior as blocker-level quality** | Strong ambition here too, but OpenMUX is making this an explicit architecture rule from day one | Excellent terminal fundamentals and the right low-level model to build on |
+| Best fit | **Developers who want a workspace they can inspect, script, extend, and truly own** | Developers who want an integrated batteries-included workspace | Developers who want a fast terminal, or builders who want a great terminal engine |
+
 ## Principles
 
 - **Open by design** — core behavior should be inspectable, replaceable, and extendable.
