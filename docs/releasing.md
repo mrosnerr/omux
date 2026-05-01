@@ -18,6 +18,17 @@ That command writes artifacts to `dist/release/`:
 
 The app archive is produced from the existing unsigned app bundle flow in `Scripts/publish-unsigned.sh`. The CLI archive packages the release-built `omux` binary plus the repository license.
 
+The app bundle also includes a bundled CLI binary at `OpenMUX.app/Contents/MacOS/omux`, so users who install only the app can:
+
+- choose **OpenMUX → Install omux CLI** inside the app for the one-click install flow
+- or link it from Terminal with:
+
+```bash
+/Applications/OpenMUX.app/Contents/MacOS/omux install-cli
+```
+
+By default that command installs `omux` into the first preferred directory already on `PATH`, or falls back to `~/.local/bin/omux` and prints the shell export line to add.
+
 ## GitHub Release flow
 
 Pushing a version tag triggers [`.github/workflows/release.yml`](../.github/workflows/release.yml):

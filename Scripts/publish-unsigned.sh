@@ -27,11 +27,18 @@ if [ ! -d "$GHOSTTY_XCFRAMEWORK" ]; then
 fi
 
 swift build -c "$CONFIGURATION" --product OpenMUXApp >/dev/null
+swift build -c "$CONFIGURATION" --product omux >/dev/null
 BIN_DIR="$(swift build -c "$CONFIGURATION" --show-bin-path)"
 APP_BIN="$BIN_DIR/OpenMUXApp"
+CLI_BIN="$BIN_DIR/omux"
 
 if [ ! -x "$APP_BIN" ]; then
   echo "error: missing built app binary at $APP_BIN" >&2
+  exit 1
+fi
+
+if [ ! -x "$CLI_BIN" ]; then
+  echo "error: missing built CLI binary at $CLI_BIN" >&2
   exit 1
 fi
 
@@ -45,6 +52,8 @@ mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 
 cp "$APP_BIN" "$MACOS_DIR/OpenMUXApp"
 chmod +x "$MACOS_DIR/OpenMUXApp"
+cp "$CLI_BIN" "$MACOS_DIR/omux"
+chmod +x "$MACOS_DIR/omux"
 
 find "$BIN_DIR" -maxdepth 1 -name '*.bundle' -exec cp -R {} "$RESOURCES_DIR"/ \;
 

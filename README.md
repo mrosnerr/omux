@@ -140,6 +140,12 @@ OpenMUX now ships with a first-pass GitHub Release flow for downloadable artifac
 
 The current automation publishes unsigned macOS app and CLI archives plus checksums. See [docs/releasing.md](./docs/releasing.md) for the exact flow and the follow-up path to Developer ID signing and notarized DMG distribution.
 
+If you install the app bundle directly, it also includes a bundled `omux` binary. You can install it from the app with **OpenMUX → Install omux CLI**, or from Terminal with:
+
+```bash
+/Applications/OpenMUX.app/Contents/MacOS/omux install-cli
+```
+
 ## Contributing
 
 Please read [CONTRIBUTING](./CONTRIBUTING.md) and [CODE OF CONDUCT](./CODE_OF_CONDUCT.md) before opening a pull request.

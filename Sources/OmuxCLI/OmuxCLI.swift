@@ -10,6 +10,7 @@ public struct OmuxCLICommand {
     private let readInputLine: () -> String?
     private let configLoader: OmuxConfigLoader
     private let themeRegistry: OmuxThemeRegistry
+    private let installer: OmuxCLIInstaller
 
     public init(
         client: OmuxControlClient = OmuxControlClient(),
@@ -18,11 +19,30 @@ public struct OmuxCLICommand {
         configLoader: OmuxConfigLoader = OmuxConfigLoader(),
         themeRegistry: OmuxThemeRegistry = OmuxThemeRegistry()
     ) {
+        self.init(
+            client: client,
+            writeLine: writeLine,
+            readInputLine: readInputLine,
+            configLoader: configLoader,
+            themeRegistry: themeRegistry,
+            installer: OmuxCLIInstaller()
+        )
+    }
+
+    init(
+        client: OmuxControlClient,
+        writeLine: @escaping (String) -> Void,
+        readInputLine: @escaping () -> String?,
+        configLoader: OmuxConfigLoader,
+        themeRegistry: OmuxThemeRegistry,
+        installer: OmuxCLIInstaller
+    ) {
         self.client = client
         self.writeLine = writeLine
         self.readInputLine = readInputLine
         self.configLoader = configLoader
         self.themeRegistry = themeRegistry
+        self.installer = installer
     }
 
     @discardableResult
@@ -143,6 +163,8 @@ public struct OmuxCLICommand {
                 writeLine(response.result?.prettyPrinted ?? "")
             case "help", "--help", "-h":
                 writeLine(Self.usage)
+            case "install-cli":
+                return runInstallCLI(arguments: Array(commandArguments.dropFirst()))
             default:
                 writeLine(Self.usage)
                 return 1
@@ -176,6 +198,7 @@ public struct OmuxCLICommand {
       omux run <session-id> <command>
       omux notify <title> [body]
       omux restore <workspace-id>
+      omux install-cli [destination]
     """
 
     private func splitAxis(from arguments: ArraySlice<String>) -> PaneSplitAxis {
@@ -307,6 +330,25 @@ public struct OmuxCLICommand {
             writeLine(applied ? "OpenMUX config reloaded." : "OpenMUX config unchanged.")
         }
         return exitCode
+    }
+
+    private func runInstallCLI(arguments: [String]) -> Int32 {
+        guard arguments.count <= 1 else {
+            writeLine("usage: omux install-cli [destination]")
+            return 1
+        }
+
+        do {
+            let result = try installer.install(destinationPath: arguments.first)
+            writeLine("Installed omux at \(result.installedPath) -> \(result.sourcePath)")
+            if let pathHintDirectory = result.pathHintDirectory {
+                writeLine("Add this to your shell profile: export PATH=\"\(pathHintDirectory):$PATH\"")
+            }
+            return 0
+        } catch {
+            writeLine("omux error: \(error)")
+            return 1
+        }
     }
 
     private func applyTheme(_ theme: OmuxTheme) throws -> Int32 {

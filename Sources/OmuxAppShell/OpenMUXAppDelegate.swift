@@ -21,6 +21,7 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate {
     private weak var splitDownMenuItem: NSMenuItem?
     private weak var removePaneMenuItem: NSMenuItem?
     private weak var toggleSidebarMenuItem: NSMenuItem?
+    private weak var installCLIMenuItem: NSMenuItem?
     private weak var previousWorkspaceMenuItem: NSMenuItem?
     private weak var moveWorkspaceUpMenuItem: NSMenuItem?
     private weak var moveWorkspaceDownMenuItem: NSMenuItem?
@@ -192,11 +193,49 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate {
         refreshMenuValidation()
     }
 
+    @objc private func installCLIFromMenu(_ sender: Any?) {
+        _ = sender
+
+        let installer = OmuxCLIInstaller(executablePath: bundledCLIExecutablePath())
+        do {
+            let result = try installer.install(destinationPath: installer.defaultUserInstallPath())
+            let informativeText: String
+            if let pathHintDirectory = result.pathHintDirectory {
+                informativeText = """
+                Installed omux at \(result.installedPath).
+
+                Add this to your shell profile if omux is still not found:
+                export PATH="\(pathHintDirectory):$PATH"
+                """
+            } else {
+                informativeText = "Installed omux at \(result.installedPath)."
+            }
+            presentAlert(
+                messageText: "omux CLI Installed",
+                informativeText: informativeText
+            )
+        } catch {
+            presentAlert(
+                messageText: "CLI Install Failed",
+                informativeText: error.localizedDescription,
+                style: .warning
+            )
+        }
+    }
+
     private func configureMenus() {
         let mainMenu = NSMenu()
 
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu()
+        let installCLIMenuItem = NSMenuItem(
+            title: "Install omux CLI",
+            action: #selector(installCLIFromMenu(_:)),
+            keyEquivalent: ""
+        )
+        installCLIMenuItem.target = self
+        appMenu.addItem(installCLIMenuItem)
+        appMenu.addItem(.separator())
         appMenu.addItem(
             withTitle: "Quit OpenMUX",
             action: #selector(NSApplication.terminate(_:)),
@@ -325,6 +364,7 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate {
         self.renameWorkspaceMenuItem = renameWorkspaceMenuItem
         self.deleteWorkspaceMenuItem = deleteWorkspaceMenuItem
         self.toggleSidebarMenuItem = toggleSidebarMenuItem
+        self.installCLIMenuItem = installCLIMenuItem
         self.previousWorkspaceMenuItem = previousWorkspaceMenuItem
         self.moveWorkspaceUpMenuItem = moveWorkspaceUpMenuItem
         self.moveWorkspaceDownMenuItem = moveWorkspaceDownMenuItem
@@ -338,6 +378,7 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate {
         newWorkspaceMenuItem?.isEnabled = workspaceController.activeWorkspace() != nil
         renameWorkspaceMenuItem?.isEnabled = workspaceController.canRenameActiveWorkspace()
         deleteWorkspaceMenuItem?.isEnabled = workspaceController.canDeleteActiveWorkspace()
+        installCLIMenuItem?.isEnabled = bundledCLIExecutablePath().flatMap(FileManager.default.isExecutableFile(atPath:)) ?? false
         let hasWorkspace = workspaceController.activeWorkspace() != nil
         toggleSidebarMenuItem?.isEnabled = hasWorkspace
         previousWorkspaceMenuItem?.isEnabled = workspaceController.canFocusPreviousWorkspace()
@@ -372,6 +413,32 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate {
 
     private func persistWorkspaceState() {
         workspacePersistenceStore.save(workspaceController.persistenceSnapshot())
+    }
+
+    private func bundledCLIExecutablePath() -> String? {
+        let cliURL = Bundle.main.bundleURL
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("MacOS", isDirectory: true)
+            .appendingPathComponent("omux", isDirectory: false)
+        return cliURL.path
+    }
+
+    private func presentAlert(
+        messageText: String,
+        informativeText: String,
+        style: NSAlert.Style = .informational
+    ) {
+        let alert = NSAlert()
+        alert.alertStyle = style
+        alert.messageText = messageText
+        alert.informativeText = informativeText
+        alert.addButton(withTitle: "OK")
+
+        if let window = windowController?.window {
+            alert.beginSheetModal(for: window)
+        } else {
+            alert.runModal()
+        }
     }
 
 }

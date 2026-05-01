@@ -72,6 +72,7 @@ swift run omux pane-tab
 swift run omux pane-tab-focus <pane-id>
 swift run omux pane-tab-close [pane-id]
 swift run omux run <session-id> "pwd"
+swift run omux install-cli [destination]
 swift run omux help
 swift run OpenMUXApp
 ```
