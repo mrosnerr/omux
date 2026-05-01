@@ -22,6 +22,8 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate {
     private weak var removePaneMenuItem: NSMenuItem?
     private weak var toggleSidebarMenuItem: NSMenuItem?
     private weak var previousWorkspaceMenuItem: NSMenuItem?
+    private weak var moveWorkspaceUpMenuItem: NSMenuItem?
+    private weak var moveWorkspaceDownMenuItem: NSMenuItem?
     private var workspaceJumpMenuItems: [NSMenuItem] = []
 
     public override init() {
@@ -168,6 +170,18 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate {
         refreshMenuValidation()
     }
 
+    @objc private func moveWorkspaceUpFromMenu(_ sender: Any?) {
+        _ = sender
+        _ = workspaceController.moveActiveWorkspaceUp()
+        refreshMenuValidation()
+    }
+
+    @objc private func moveWorkspaceDownFromMenu(_ sender: Any?) {
+        _ = sender
+        _ = workspaceController.moveActiveWorkspaceDown()
+        refreshMenuValidation()
+    }
+
     @objc private func focusNumberedWorkspaceFromMenu(_ sender: Any?) {
         guard let item = sender as? NSMenuItem else {
             return
@@ -243,6 +257,24 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate {
         previousWorkspaceMenuItem.target = self
         viewMenu.addItem(previousWorkspaceMenuItem)
 
+        let moveWorkspaceUpMenuItem = NSMenuItem(
+            title: "Move Workspace Up",
+            action: #selector(moveWorkspaceUpFromMenu(_:)),
+            keyEquivalent: String(UnicodeScalar(NSUpArrowFunctionKey)!)
+        )
+        moveWorkspaceUpMenuItem.keyEquivalentModifierMask = [.command, .control]
+        moveWorkspaceUpMenuItem.target = self
+        viewMenu.addItem(moveWorkspaceUpMenuItem)
+
+        let moveWorkspaceDownMenuItem = NSMenuItem(
+            title: "Move Workspace Down",
+            action: #selector(moveWorkspaceDownFromMenu(_:)),
+            keyEquivalent: String(UnicodeScalar(NSDownArrowFunctionKey)!)
+        )
+        moveWorkspaceDownMenuItem.keyEquivalentModifierMask = [.command, .control]
+        moveWorkspaceDownMenuItem.target = self
+        viewMenu.addItem(moveWorkspaceDownMenuItem)
+
         var workspaceJumpMenuItems: [NSMenuItem] = []
         for index in 0..<9 {
             let item = NSMenuItem(
@@ -294,6 +326,8 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate {
         self.deleteWorkspaceMenuItem = deleteWorkspaceMenuItem
         self.toggleSidebarMenuItem = toggleSidebarMenuItem
         self.previousWorkspaceMenuItem = previousWorkspaceMenuItem
+        self.moveWorkspaceUpMenuItem = moveWorkspaceUpMenuItem
+        self.moveWorkspaceDownMenuItem = moveWorkspaceDownMenuItem
         self.workspaceJumpMenuItems = workspaceJumpMenuItems
         self.splitRightMenuItem = splitRightMenuItem
         self.splitDownMenuItem = splitDownMenuItem
@@ -307,6 +341,8 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate {
         let hasWorkspace = workspaceController.activeWorkspace() != nil
         toggleSidebarMenuItem?.isEnabled = hasWorkspace
         previousWorkspaceMenuItem?.isEnabled = workspaceController.canFocusPreviousWorkspace()
+        moveWorkspaceUpMenuItem?.isEnabled = workspaceController.canMoveActiveWorkspaceUp()
+        moveWorkspaceDownMenuItem?.isEnabled = workspaceController.canMoveActiveWorkspaceDown()
         let workspaceCount = workspaceController.listWorkspaces().count
         for (index, item) in workspaceJumpMenuItems.enumerated() {
             item.isEnabled = index < workspaceCount

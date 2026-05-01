@@ -159,6 +159,9 @@ final class WorkspaceShellViewController: NSViewController {
                 _ = try? self?.controller.deleteActiveWorkspace()
             },
             canDeleteWorkspace: controller.canDeleteActiveWorkspace(),
+            onMoveWorkspace: { [weak self] workspaceID, targetIndex in
+                _ = self?.controller.moveWorkspace(workspaceID, toDisplayIndex: targetIndex)
+            },
             onSelectPane: { [weak self] paneID in
                 _ = self?.controller.focus(paneID: paneID)
             }
@@ -489,6 +492,13 @@ struct SidebarItem {
     let action: Action
     let contextMenuProvider: (() -> NSMenu)?
 
+    var workspaceID: WorkspaceID? {
+        guard case .workspace(let workspaceID) = action else {
+            return nil
+        }
+        return workspaceID
+    }
+
     var rowHeight: CGFloat {
         switch kind {
         case .workspace:
@@ -556,6 +566,7 @@ final class WorkspaceSidebarView: NSView {
         onCreateWorkspace: @escaping @MainActor () -> Void,
         onDeleteWorkspace: @escaping @MainActor () -> Void,
         canDeleteWorkspace: Bool,
+        onMoveWorkspace: @escaping @MainActor (WorkspaceID, Int) -> Void,
         onSelectPane: @escaping @MainActor (PaneID) -> Void
     ) {
         apply(theme: theme)
@@ -578,6 +589,7 @@ final class WorkspaceSidebarView: NSView {
                     action: onDeleteWorkspace
                 ),
             ],
+            onMoveWorkspace: onMoveWorkspace,
             buttonHandler: { item in
                 switch item.action {
                 case .workspace(let workspaceID):
@@ -597,7 +609,12 @@ private final class WorkspaceSidebarSectionView: NSView {
     private let itemStack = NSStackView()
     private let emptyLabel = NSTextField(labelWithString: "")
     private var accessoryButtons: [ChromePillButton] = []
-    private var itemButtons: [NSView] = []
+    private var itemButtons: [SidebarItemButton] = []
+    private var workspaceButtons: [SidebarItemButton] = []
+    private var currentTheme: WorkspaceShellTheme?
+    private var reorderHandler: ((WorkspaceID, Int) -> Void)?
+    private var draggingWorkspaceID: WorkspaceID?
+    private var dropTargetWorkspaceID: WorkspaceID?
 
     init() {
         super.init(frame: .zero)
@@ -658,16 +675,22 @@ private final class WorkspaceSidebarSectionView: NSView {
         emptyState: String,
         theme: WorkspaceShellTheme,
         accessories: [SidebarSectionAccessory],
+        onMoveWorkspace: @escaping (WorkspaceID, Int) -> Void,
         buttonHandler: @escaping (SidebarItem) -> Void
     ) {
         titleLabel.stringValue = "\(title) · \(count)"
         emptyLabel.stringValue = emptyState
+        currentTheme = theme
+        reorderHandler = onMoveWorkspace
+        draggingWorkspaceID = nil
+        dropTargetWorkspaceID = nil
 
         for button in itemButtons {
             itemStack.removeArrangedSubview(button)
             button.removeFromSuperview()
         }
         itemButtons.removeAll()
+        workspaceButtons.removeAll()
 
         for accessoryButton in accessoryButtons {
             headerStack.removeArrangedSubview(accessoryButton)
@@ -698,10 +721,75 @@ private final class WorkspaceSidebarSectionView: NSView {
                 buttonHandler(item)
             }
             button.contextMenuProvider = item.contextMenuProvider
+            if let workspaceID = item.workspaceID {
+                button.workspaceID = workspaceID
+                workspaceButtons.append(button)
+                button.onDragStarted = { [weak self] button, _ in
+                    self?.beginWorkspaceDrag(for: button)
+                }
+                button.onDragMoved = { [weak self] button, event in
+                    self?.updateWorkspaceDrag(for: button, with: event)
+                }
+                button.onDragEnded = { [weak self] button, _ in
+                    self?.finishWorkspaceDrag(for: button)
+                }
+            } else {
+                button.workspaceID = nil
+                button.onDragStarted = nil
+                button.onDragMoved = nil
+                button.onDragEnded = nil
+            }
             itemStack.addArrangedSubview(button)
             button.widthAnchor.constraint(equalTo: itemStack.widthAnchor).isActive = true
             button.heightAnchor.constraint(equalToConstant: item.rowHeight).isActive = true
             itemButtons.append(button)
+        }
+    }
+
+    private func beginWorkspaceDrag(for button: SidebarItemButton) {
+        draggingWorkspaceID = button.workspaceID
+        dropTargetWorkspaceID = button.workspaceID
+        updateWorkspaceDragAppearance()
+    }
+
+    private func updateWorkspaceDrag(for button: SidebarItemButton, with event: NSEvent) {
+        guard draggingWorkspaceID == button.workspaceID else {
+            return
+        }
+
+        let locationInWindow = event.locationInWindow
+        if let targetButton = workspaceButtons.first(where: { button in
+            let center = button.convert(CGPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)
+            return locationInWindow.y >= center.y
+        }) {
+            dropTargetWorkspaceID = targetButton.workspaceID
+        } else {
+            dropTargetWorkspaceID = workspaceButtons.last?.workspaceID
+        }
+        updateWorkspaceDragAppearance()
+    }
+
+    private func finishWorkspaceDrag(for button: SidebarItemButton) {
+        defer {
+            draggingWorkspaceID = nil
+            dropTargetWorkspaceID = nil
+            updateWorkspaceDragAppearance()
+        }
+
+        guard let workspaceID = button.workspaceID,
+              let targetWorkspaceID = dropTargetWorkspaceID,
+              let targetIndex = workspaceButtons.firstIndex(where: { $0.workspaceID == targetWorkspaceID })
+        else {
+            return
+        }
+
+        reorderHandler?(workspaceID, targetIndex)
+    }
+
+    private func updateWorkspaceDragAppearance() {
+        for button in workspaceButtons {
+            button.alphaValue = button.workspaceID == draggingWorkspaceID ? 0.6 : 1
+            button.setDropTarget(button.workspaceID == dropTargetWorkspaceID && draggingWorkspaceID != nil, theme: currentTheme)
         }
     }
 }
@@ -1368,6 +1456,10 @@ private class ChromePillButton: NSControl {
 @MainActor
 final class SidebarItemButton: NSView {
     var onPress: (() -> Void)?
+    var workspaceID: WorkspaceID?
+    var onDragStarted: ((SidebarItemButton, NSEvent) -> Void)?
+    var onDragMoved: ((SidebarItemButton, NSEvent) -> Void)?
+    var onDragEnded: ((SidebarItemButton, NSEvent) -> Void)?
     var contextMenuProvider: (() -> NSMenu?)? {
         didSet {
             menu = contextMenuProvider?()
@@ -1473,7 +1565,46 @@ final class SidebarItemButton: NSView {
     override var acceptsFirstResponder: Bool { false }
 
     override func mouseDown(with event: NSEvent) {
-        onPress?()
+        guard onDragStarted != nil || onDragMoved != nil || onDragEnded != nil else {
+            onPress?()
+            return
+        }
+
+        let initialLocation = convert(event.locationInWindow, from: nil)
+        var didStartDragging = false
+
+        while let nextEvent = window?.nextEvent(
+            matching: [.leftMouseDragged, .leftMouseUp],
+            until: .distantFuture,
+            inMode: .eventTracking,
+            dequeue: true
+        ) {
+            switch nextEvent.type {
+            case .leftMouseDragged:
+                let location = convert(nextEvent.locationInWindow, from: nil)
+                let delta = hypot(location.x - initialLocation.x, location.y - initialLocation.y)
+                guard delta >= 4 else {
+                    continue
+                }
+
+                if didStartDragging == false {
+                    didStartDragging = true
+                    onDragStarted?(self, nextEvent)
+                }
+                onDragMoved?(self, nextEvent)
+
+            case .leftMouseUp:
+                if didStartDragging {
+                    onDragEnded?(self, nextEvent)
+                } else {
+                    onPress?()
+                }
+                return
+
+            default:
+                return
+            }
+        }
     }
 
     override func rightMouseDown(with event: NSEvent) {
@@ -1482,6 +1613,14 @@ final class SidebarItemButton: NSView {
         } else {
             super.rightMouseDown(with: event)
         }
+    }
+
+    func setDropTarget(_ isDropTarget: Bool, theme: WorkspaceShellTheme?) {
+        guard let theme else {
+            return
+        }
+        layer?.borderWidth = isDropTarget ? 1 : 0
+        layer?.borderColor = isDropTarget ? theme.shell.selection.cgColor : nil
     }
 }
 

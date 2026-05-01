@@ -281,6 +281,75 @@ final class OmuxAppShellTests: XCTestCase {
         XCTAssertEqual(controller.activeWorkspace()?.id, secondWorkspace.id)
     }
 
+    func testWorkspaceControllerMovesActiveWorkspaceUpAndDown() throws {
+        let controller = WorkspaceController(
+            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            hookRunner: ExternalHookRunner()
+        )
+
+        let firstWorkspace = try controller.openWorkspace(at: "/tmp")
+        let secondWorkspace = try controller.createWorkspace()
+        let thirdWorkspace = try controller.createWorkspace()
+
+        XCTAssertEqual(controller.listWorkspaces().map(\.id), [firstWorkspace.id, secondWorkspace.id, thirdWorkspace.id])
+        XCTAssertEqual(controller.activeWorkspace()?.id, thirdWorkspace.id)
+        XCTAssertTrue(controller.canMoveActiveWorkspaceUp())
+        XCTAssertFalse(controller.canMoveActiveWorkspaceDown())
+
+        let movedUp = try XCTUnwrap(controller.moveActiveWorkspaceUp())
+        XCTAssertEqual(movedUp.id, thirdWorkspace.id)
+        XCTAssertEqual(controller.listWorkspaces().map(\.id), [firstWorkspace.id, thirdWorkspace.id, secondWorkspace.id])
+        XCTAssertTrue(controller.canMoveActiveWorkspaceUp())
+        XCTAssertTrue(controller.canMoveActiveWorkspaceDown())
+
+        let movedDown = try XCTUnwrap(controller.moveActiveWorkspaceDown())
+        XCTAssertEqual(movedDown.id, thirdWorkspace.id)
+        XCTAssertEqual(controller.listWorkspaces().map(\.id), [firstWorkspace.id, secondWorkspace.id, thirdWorkspace.id])
+        XCTAssertFalse(controller.canMoveActiveWorkspaceDown())
+    }
+
+    func testWorkspaceControllerDoesNotMoveActiveWorkspacePastBounds() throws {
+        let controller = WorkspaceController(
+            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            hookRunner: ExternalHookRunner()
+        )
+
+        _ = try controller.openWorkspace(at: "/tmp")
+        let secondWorkspace = try controller.createWorkspace()
+
+        XCTAssertNil(controller.moveActiveWorkspaceDown())
+        XCTAssertEqual(controller.activeWorkspace()?.id, secondWorkspace.id)
+
+        _ = controller.moveActiveWorkspaceUp()
+        XCTAssertNil(controller.moveActiveWorkspaceUp())
+        XCTAssertFalse(controller.canMoveActiveWorkspaceUp())
+        XCTAssertTrue(controller.canMoveActiveWorkspaceDown())
+    }
+
+    func testWorkspaceControllerPersistsReorderedWorkspaceOrder() throws {
+        let controller = WorkspaceController(
+            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            hookRunner: ExternalHookRunner()
+        )
+
+        let firstWorkspace = try controller.openWorkspace(at: "/tmp")
+        let secondWorkspace = try controller.createWorkspace()
+        let thirdWorkspace = try controller.createWorkspace()
+
+        _ = controller.moveWorkspace(thirdWorkspace.id, toDisplayIndex: 0)
+        XCTAssertEqual(controller.listWorkspaces().map(\.id), [thirdWorkspace.id, firstWorkspace.id, secondWorkspace.id])
+
+        let snapshot = try XCTUnwrap(controller.persistenceSnapshot())
+        let restoredController = WorkspaceController(
+            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            hookRunner: ExternalHookRunner()
+        )
+
+        _ = try XCTUnwrap(restoredController.restorePersistedState(snapshot))
+        XCTAssertEqual(restoredController.listWorkspaces().map(\.id), [thirdWorkspace.id, firstWorkspace.id, secondWorkspace.id])
+        XCTAssertEqual(restoredController.activeWorkspace()?.id, thirdWorkspace.id)
+    }
+
     func testWorkspaceControllerIgnoresMissingOrderedWorkspace() throws {
         let controller = WorkspaceController(
             bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
@@ -496,6 +565,42 @@ final class OmuxAppShellTests: XCTestCase {
 
         XCTAssertTrue(findLabel(withString: "WORKSPACES · 2", in: sidebar))
         XCTAssertGreaterThanOrEqual(findViews(ofType: SidebarItemButton.self, in: sidebar).count, 2)
+    }
+
+    @MainActor
+    func testWorkspaceWindowReflectsReorderedWorkspaceSidebarOrder() throws {
+        let controller = WorkspaceController(
+            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            hookRunner: ExternalHookRunner()
+        )
+
+        let firstWorkspace = try controller.openWorkspace(at: "/tmp")
+        _ = try controller.renameWorkspace(firstWorkspace.id, to: "Alpha")
+        let secondWorkspace = try controller.createWorkspace()
+        _ = try controller.renameWorkspace(secondWorkspace.id, to: "Beta")
+        let thirdWorkspace = try controller.createWorkspace()
+        let reorderedWorkspace = try XCTUnwrap(controller.renameWorkspace(thirdWorkspace.id, to: "Gamma"))
+
+        let windowController = WorkspaceWindowController(workspace: reorderedWorkspace, controller: controller)
+        let window = try XCTUnwrap(windowController.window)
+        let rootView = try XCTUnwrap(window.contentViewController?.view)
+        let sidebar = try XCTUnwrap(findView(ofType: WorkspaceSidebarView.self, in: rootView))
+
+        _ = controller.moveWorkspace(thirdWorkspace.id, toDisplayIndex: 0)
+        windowController.update(workspace: try XCTUnwrap(controller.activeWorkspace()))
+        window.contentView?.layoutSubtreeIfNeeded()
+        rootView.layoutSubtreeIfNeeded()
+
+        let alphaLabel = try XCTUnwrap(findLabelView(withString: "Alpha", in: sidebar))
+        let gammaLabel = try XCTUnwrap(findLabelView(withString: "Gamma", in: sidebar))
+        let betaLabel = try XCTUnwrap(findLabelView(withString: "Beta", in: sidebar))
+
+        let gammaFrame = gammaLabel.convert(gammaLabel.bounds, to: rootView)
+        let alphaFrame = alphaLabel.convert(alphaLabel.bounds, to: rootView)
+        let betaFrame = betaLabel.convert(betaLabel.bounds, to: rootView)
+
+        XCTAssertGreaterThan(gammaFrame.minY, alphaFrame.minY)
+        XCTAssertGreaterThan(alphaFrame.minY, betaFrame.minY)
     }
 
     @MainActor

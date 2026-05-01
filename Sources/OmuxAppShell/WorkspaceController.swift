@@ -226,6 +226,24 @@ public final class WorkspaceController: @unchecked Sendable {
         return activeWorkspaceIndex != nil
     }
 
+    public func canMoveActiveWorkspaceUp() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let activeWorkspaceIndex else {
+            return false
+        }
+        return activeWorkspaceIndex > 0
+    }
+
+    public func canMoveActiveWorkspaceDown() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let activeWorkspaceIndex else {
+            return false
+        }
+        return activeWorkspaceIndex < workspaces.index(before: workspaces.endIndex)
+    }
+
     public func canRemoveActivePane() -> Bool {
         lock.lock()
         defer { lock.unlock() }
@@ -674,6 +692,44 @@ public final class WorkspaceController: @unchecked Sendable {
 
     public func focusedPaneID(in workspace: Workspace) -> PaneID? {
         workspace.focusedPane?.id
+    }
+
+    @discardableResult
+    public func moveWorkspace(_ workspaceID: WorkspaceID, toDisplayIndex targetIndex: Int) -> Workspace? {
+        var updatedWorkspace: Workspace?
+        lock.lock()
+        if let sourceIndex = workspaces.firstIndex(where: { $0.id == workspaceID }),
+           workspaces.indices.contains(targetIndex),
+           sourceIndex != targetIndex {
+            let workspace = workspaces.remove(at: sourceIndex)
+            workspaces.insert(workspace, at: targetIndex)
+            updatedWorkspace = activeWorkspaceID.flatMap { activeID in
+                workspaces.first(where: { $0.id == activeID })
+            } ?? workspace
+        }
+        lock.unlock()
+
+        if let updatedWorkspace {
+            onChange?(updatedWorkspace)
+        }
+
+        return updatedWorkspace
+    }
+
+    @discardableResult
+    public func moveActiveWorkspaceUp() -> Workspace? {
+        guard let activeWorkspaceID, let activeWorkspaceIndex else {
+            return nil
+        }
+        return moveWorkspace(activeWorkspaceID, toDisplayIndex: activeWorkspaceIndex - 1)
+    }
+
+    @discardableResult
+    public func moveActiveWorkspaceDown() -> Workspace? {
+        guard let activeWorkspaceID, let activeWorkspaceIndex else {
+            return nil
+        }
+        return moveWorkspace(activeWorkspaceID, toDisplayIndex: activeWorkspaceIndex + 1)
     }
 
     @discardableResult
