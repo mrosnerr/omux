@@ -65,12 +65,12 @@ final class OmuxAppShellTests: XCTestCase {
 
         XCTAssertEqual(nestedLayout.focusedTab?.panes.count, 3)
 
-        guard case .split(axis: .rows, let rootChildren)? = nestedLayout.focusedTab?.rootLayout else {
+        guard case .split(axis: .rows, proportions: _, children: let rootChildren)? = nestedLayout.focusedTab?.rootLayout else {
             return XCTFail("expected a row split at the root")
         }
 
         XCTAssertEqual(rootChildren.count, 2)
-        guard case .split(axis: .columns, let nestedChildren) = rootChildren[1] else {
+        guard case .split(axis: .columns, proportions: _, children: let nestedChildren) = rootChildren[1] else {
             return XCTFail("expected the lower pane to become a nested column split")
         }
 
@@ -231,6 +231,13 @@ final class OmuxAppShellTests: XCTestCase {
 
         _ = try controller.renameWorkspace(firstWorkspace.id, to: "Client Shell")
         let splitWorkspace = try XCTUnwrap(controller.splitFocusedPane(axis: .columns))
+        _ = controller.updateSplitProportions(
+            [0.7, 0.3],
+            forChildPaneIDs: [
+                firstPane.id,
+                try XCTUnwrap(splitWorkspace.focusedPane?.id),
+            ]
+        )
         let secondWorkspace = try controller.createWorkspace()
         _ = controller.focus(paneID: try XCTUnwrap(splitWorkspace.focusedPane?.id))
 
@@ -248,6 +255,12 @@ final class OmuxAppShellTests: XCTestCase {
         XCTAssertEqual(restoredWorkspaces[0].focusedTab?.panes.count, 2)
         XCTAssertEqual(restoredWorkspaces[0].focusedPane?.session.workingDirectory, "/var/tmp")
         XCTAssertNil(restoredWorkspaces[0].focusedPane?.terminalState.statusSummary)
+        guard case .split(axis: .columns, proportions: let restoredProportions, children: _)? = restoredWorkspaces[0].focusedTab?.rootLayout else {
+            return XCTFail("expected restored layout to keep split proportions")
+        }
+        XCTAssertEqual(restoredProportions.count, 2)
+        XCTAssertEqual(restoredProportions[0], 0.7, accuracy: 0.0001)
+        XCTAssertEqual(restoredProportions[1], 0.3, accuracy: 0.0001)
         XCTAssertEqual(restoredActiveWorkspace.id, secondWorkspace.id)
         XCTAssertEqual(restoredController.activeWorkspace()?.id, secondWorkspace.id)
     }
@@ -519,6 +532,9 @@ final class OmuxAppShellTests: XCTestCase {
 
         window.contentView?.layoutSubtreeIfNeeded()
         rootView.layoutSubtreeIfNeeded()
+
+        XCTAssertGreaterThanOrEqual(window.frame.width, 1000)
+        XCTAssertGreaterThanOrEqual(window.frame.height, 700)
 
         let paneCards = findViews(ofType: PaneCardView.self, in: rootView)
         XCTAssertEqual(paneCards.count, 2)

@@ -178,14 +178,59 @@ public indirect enum TabLayoutNode: Equatable, Codable, Sendable {
         let collapseNode: Bool
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case paneStack
+        case split
+    }
+
+    private enum SplitCodingKeys: String, CodingKey {
+        case axis
+        case children
+        case proportions
+    }
+
     case paneStack(PaneStack)
-    case split(axis: PaneSplitAxis, children: [TabLayoutNode])
+    case split(axis: PaneSplitAxis, proportions: [Double], children: [TabLayoutNode])
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if container.contains(.paneStack) {
+            self = .paneStack(try container.decode(PaneStack.self, forKey: .paneStack))
+            return
+        }
+
+        if container.contains(.split) {
+            let splitContainer = try container.nestedContainer(keyedBy: SplitCodingKeys.self, forKey: .split)
+            let axis = try splitContainer.decode(PaneSplitAxis.self, forKey: .axis)
+            let children = try splitContainer.decode([TabLayoutNode].self, forKey: .children)
+            let proportions = try splitContainer.decodeIfPresent([Double].self, forKey: .proportions) ?? []
+            self = Self.makeSplit(axis: axis, proportions: proportions, children: children)
+            return
+        }
+
+        throw DecodingError.dataCorrupted(
+            .init(codingPath: decoder.codingPath, debugDescription: "Unsupported TabLayoutNode encoding")
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .paneStack(let paneStack):
+            try container.encode(paneStack, forKey: .paneStack)
+        case .split(let axis, let proportions, let children):
+            var splitContainer = container.nestedContainer(keyedBy: SplitCodingKeys.self, forKey: .split)
+            try splitContainer.encode(axis, forKey: .axis)
+            try splitContainer.encode(children, forKey: .children)
+            try splitContainer.encode(proportions, forKey: .proportions)
+        }
+    }
 
     public var panes: [Pane] {
         switch self {
         case .paneStack(let paneStack):
             return paneStack.panes
-        case .split(_, let children):
+        case .split(_, _, let children):
             return children.flatMap(\.panes)
         }
     }
@@ -194,8 +239,17 @@ public indirect enum TabLayoutNode: Equatable, Codable, Sendable {
         switch self {
         case .paneStack(let paneStack):
             return [paneStack]
-        case .split(_, let children):
+        case .split(_, _, let children):
             return children.flatMap(\.paneStacks)
+        }
+    }
+
+    public var representativePaneID: PaneID? {
+        switch self {
+        case .paneStack(let paneStack):
+            return paneStack.panes.first?.id
+        case .split(_, _, let children):
+            return children.first?.representativePaneID
         }
     }
 
@@ -203,7 +257,7 @@ public indirect enum TabLayoutNode: Equatable, Codable, Sendable {
         switch self {
         case .paneStack(let paneStack):
             return paneStack.panes.first(where: { $0.id == id })
-        case .split(_, let children):
+        case .split(_, _, let children):
             for child in children {
                 if let pane = child.pane(id: id) {
                     return pane
@@ -217,7 +271,7 @@ public indirect enum TabLayoutNode: Equatable, Codable, Sendable {
         switch self {
         case .paneStack(let paneStack):
             return paneStack.id == id ? paneStack : nil
-        case .split(_, let children):
+        case .split(_, _, let children):
             for child in children {
                 if let paneStack = child.paneStack(id: id) {
                     return paneStack
@@ -231,7 +285,7 @@ public indirect enum TabLayoutNode: Equatable, Codable, Sendable {
         switch self {
         case .paneStack(let paneStack):
             return paneStack.panes.contains(where: { $0.id == paneID }) ? paneStack : nil
-        case .split(_, let children):
+        case .split(_, _, let children):
             for child in children {
                 if let paneStack = child.paneStack(containingPaneID: paneID) {
                     return paneStack
@@ -258,10 +312,10 @@ public indirect enum TabLayoutNode: Equatable, Codable, Sendable {
             transform(&paneStack.panes[index])
             self = .paneStack(paneStack)
             return true
-        case .split(let axis, var children):
+        case .split(let axis, let proportions, var children):
             for index in children.indices {
                 if children[index].updatePane(paneID, transform: transform) {
-                    self = .split(axis: axis, children: children)
+                    self = Self.makeSplit(axis: axis, proportions: proportions, children: children)
                     return true
                 }
             }
@@ -284,10 +338,10 @@ public indirect enum TabLayoutNode: Equatable, Codable, Sendable {
             self = .paneStack(paneStack)
             return true
 
-        case .split(let axis, var children):
+        case .split(let axis, let proportions, var children):
             for index in children.indices {
                 if children[index].focusPane(paneID) {
-                    self = .split(axis: axis, children: children)
+                    self = Self.makeSplit(axis: axis, proportions: proportions, children: children)
                     return true
                 }
             }
@@ -311,10 +365,10 @@ public indirect enum TabLayoutNode: Equatable, Codable, Sendable {
             self = .paneStack(paneStack)
             return true
 
-        case .split(let axis, var children):
+        case .split(let axis, let proportions, var children):
             for index in children.indices {
                 if children[index].createPane(inStack: stackID, pane: pane, focus: focus) {
-                    self = .split(axis: axis, children: children)
+                    self = Self.makeSplit(axis: axis, proportions: proportions, children: children)
                     return true
                 }
             }
@@ -337,10 +391,10 @@ public indirect enum TabLayoutNode: Equatable, Codable, Sendable {
             self = .paneStack(paneStack)
             return removedPane
 
-        case .split(let axis, var children):
+        case .split(let axis, let proportions, var children):
             for index in children.indices {
                 if let removedPane = children[index].closePane(inStack: stackID, paneID: paneID) {
-                    self = .split(axis: axis, children: children)
+                    self = Self.makeSplit(axis: axis, proportions: proportions, children: children)
                     return removedPane
                 }
             }
@@ -350,6 +404,36 @@ public indirect enum TabLayoutNode: Equatable, Codable, Sendable {
 
     public mutating func detachPane(id paneID: PaneID) -> Pane? {
         detachPaneResult(id: paneID)?.pane
+    }
+
+    @discardableResult
+    public mutating func updateSplitProportions(
+        _ proportions: [Double],
+        forChildPaneIDs childPaneIDs: [PaneID]
+    ) -> Bool {
+        switch self {
+        case .paneStack:
+            return false
+
+        case .split(let axis, let currentProportions, var children):
+            let normalizedProportions = Self.normalizedSplitProportions(proportions, childCount: children.count)
+            if childPaneIDs.count == children.count,
+               zip(children, childPaneIDs).allSatisfy({ child, paneID in child.containsPane(id: paneID) }) {
+                guard normalizedProportions != currentProportions else {
+                    return false
+                }
+                self = Self.makeSplit(axis: axis, proportions: normalizedProportions, children: children)
+                return true
+            }
+
+            for index in children.indices {
+                if children[index].updateSplitProportions(proportions, forChildPaneIDs: childPaneIDs) {
+                    self = Self.makeSplit(axis: axis, proportions: currentProportions, children: children)
+                    return true
+                }
+            }
+            return false
+        }
     }
 
     @discardableResult
@@ -364,13 +448,17 @@ public indirect enum TabLayoutNode: Equatable, Codable, Sendable {
                 return false
             }
 
-            self = .split(axis: axis, children: [.paneStack(existingPaneStack), .paneStack(paneStack)])
+            self = Self.makeSplit(
+                axis: axis,
+                proportions: [],
+                children: [.paneStack(existingPaneStack), .paneStack(paneStack)]
+            )
             return true
 
-        case .split(let existingAxis, var children):
+        case .split(let existingAxis, let proportions, var children):
             for index in children.indices {
                 if children[index].split(stackID: stackID, axis: axis, adding: paneStack) {
-                    self = .split(axis: existingAxis, children: children)
+                    self = Self.makeSplit(axis: existingAxis, proportions: proportions, children: children)
                     return true
                 }
             }
@@ -397,24 +485,65 @@ public indirect enum TabLayoutNode: Equatable, Codable, Sendable {
             self = .paneStack(paneStack)
             return PaneDetachResult(pane: removedPane, collapseNode: false)
 
-        case .split(let axis, var children):
+        case .split(let axis, let proportions, var children):
             for index in children.indices {
                 if let result = children[index].detachPaneResult(id: paneID) {
+                    var updatedProportions = proportions
                     if result.collapseNode {
                         children.remove(at: index)
+                        if updatedProportions.indices.contains(index) {
+                            updatedProportions.remove(at: index)
+                        }
                     }
 
                     if children.isEmpty {
                         return PaneDetachResult(pane: result.pane, collapseNode: true)
                     }
 
-                    self = children.count == 1 ? children[0] : .split(axis: axis, children: children)
+                    self = children.count == 1
+                        ? children[0]
+                        : Self.makeSplit(axis: axis, proportions: updatedProportions, children: children)
                     return PaneDetachResult(pane: result.pane, collapseNode: false)
                 }
             }
 
             return nil
         }
+    }
+
+    private static func makeSplit(
+        axis: PaneSplitAxis,
+        proportions: [Double],
+        children: [TabLayoutNode]
+    ) -> TabLayoutNode {
+        .split(
+            axis: axis,
+            proportions: normalizedSplitProportions(proportions, childCount: children.count),
+            children: children
+        )
+    }
+
+    private static func normalizedSplitProportions(_ proportions: [Double], childCount: Int) -> [Double] {
+        guard childCount > 0 else {
+            return []
+        }
+
+        if childCount == 1 {
+            return [1]
+        }
+
+        guard proportions.count == childCount,
+              proportions.allSatisfy({ $0.isFinite && $0 > 0 })
+        else {
+            return Array(repeating: 1.0 / Double(childCount), count: childCount)
+        }
+
+        let total = proportions.reduce(0, +)
+        guard total.isFinite, total > 0 else {
+            return Array(repeating: 1.0 / Double(childCount), count: childCount)
+        }
+
+        return proportions.map { $0 / total }
     }
 }
 
@@ -533,15 +662,24 @@ public struct Tab: Equatable, Codable, Sendable {
         return true
     }
 
+    @discardableResult
+    public mutating func updateSplitProportions(
+        _ proportions: [Double],
+        forChildPaneIDs childPaneIDs: [PaneID]
+    ) -> Bool {
+        rootLayout.updateSplitProportions(proportions, forChildPaneIDs: childPaneIDs)
+    }
+
     private static func makeInitialLayout(from panes: [Pane]) -> TabLayoutNode {
         guard let firstPane = panes.first else {
-            return .split(axis: .columns, children: [])
+            return .split(axis: .columns, proportions: [], children: [])
         }
 
         return panes.dropFirst().reduce(.paneStack(PaneStack(panes: [firstPane], focusedPaneID: firstPane.id))) {
             partialResult, pane in
             .split(
                 axis: .columns,
+                proportions: [0.5, 0.5],
                 children: [
                     partialResult,
                     .paneStack(PaneStack(panes: [pane], focusedPaneID: pane.id)),
@@ -715,6 +853,18 @@ public struct Workspace: Equatable, Codable, Sendable {
         }
 
         return tabs[tabIndex].splitFocusedPane(pane, axis: axis ?? .columns)
+    }
+
+    @discardableResult
+    public mutating func updateSplitProportions(
+        _ proportions: [Double],
+        forChildPaneIDs childPaneIDs: [PaneID]
+    ) -> Bool {
+        guard let tabIndex = tabs.firstIndex(where: { $0.id == focusedTabID }) else {
+            return false
+        }
+
+        return tabs[tabIndex].updateSplitProportions(proportions, forChildPaneIDs: childPaneIDs)
     }
 }
 

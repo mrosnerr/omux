@@ -141,6 +141,34 @@ final class OmuxCoreTests: XCTestCase {
         XCTAssertTrue(tab.splitFocusedPane(secondPane, axis: .rows))
         XCTAssertEqual(tab.paneStacks.count, 2)
         XCTAssertEqual(tab.focusedPane?.id, secondPane.id)
+
+        guard case .split(axis: .rows, proportions: let proportions, children: let children) = tab.rootLayout else {
+            return XCTFail("expected root layout to become a split")
+        }
+        XCTAssertEqual(children.count, 2)
+        XCTAssertEqual(proportions, [0.5, 0.5])
+    }
+
+    func testSplitProportionsNormalizeWhenUpdated() {
+        let firstPane = Pane(
+            title: "one",
+            session: SessionDescriptor(shell: "/bin/zsh", workingDirectory: "/tmp")
+        )
+        let secondPane = Pane(
+            title: "two",
+            session: SessionDescriptor(shell: "/bin/zsh", workingDirectory: "/tmp")
+        )
+        var tab = Tab(title: "Main", panes: [firstPane], focusedPaneID: firstPane.id)
+
+        XCTAssertTrue(tab.splitFocusedPane(secondPane, axis: .columns))
+        XCTAssertTrue(tab.updateSplitProportions([7, 3], forChildPaneIDs: [firstPane.id, secondPane.id]))
+
+        guard case .split(axis: .columns, proportions: let proportions, children: let children) = tab.rootLayout else {
+            return XCTFail("expected root layout to remain a split")
+        }
+        XCTAssertEqual(children.count, 2)
+        XCTAssertEqual(proportions[0], 0.7, accuracy: 0.0001)
+        XCTAssertEqual(proportions[1], 0.3, accuracy: 0.0001)
     }
 
     func testClosingLastPaneTabInStackIsRejected() {
@@ -151,6 +179,35 @@ final class OmuxCoreTests: XCTestCase {
         var tab = Tab(title: "Main", panes: [pane], focusedPaneID: pane.id)
 
         XCTAssertNil(tab.closeFocusedPane())
+    }
+
+    func testTabLayoutNodeCodableRoundTripPreservesSplitProportions() throws {
+        let firstPane = Pane(
+            title: "one",
+            session: SessionDescriptor(shell: "/bin/zsh", workingDirectory: "/tmp")
+        )
+        let secondPane = Pane(
+            title: "two",
+            session: SessionDescriptor(shell: "/bin/zsh", workingDirectory: "/tmp")
+        )
+        let node = TabLayoutNode.split(
+            axis: .rows,
+            proportions: [0.65, 0.35],
+            children: [
+                .paneStack(PaneStack(panes: [firstPane], focusedPaneID: firstPane.id)),
+                .paneStack(PaneStack(panes: [secondPane], focusedPaneID: secondPane.id)),
+            ]
+        )
+
+        let data = try JSONEncoder().encode(node)
+        let decoded = try JSONDecoder().decode(TabLayoutNode.self, from: data)
+
+        guard case .split(axis: .rows, proportions: let proportions, children: let children) = decoded else {
+            return XCTFail("expected split node after decoding")
+        }
+        XCTAssertEqual(children.count, 2)
+        XCTAssertEqual(proportions[0], 0.65, accuracy: 0.0001)
+        XCTAssertEqual(proportions[1], 0.35, accuracy: 0.0001)
     }
 
     func testOmuxValuePreservesStructuredPayloadShape() throws {

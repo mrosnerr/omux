@@ -70,6 +70,11 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate {
             )
             self.windowController = windowController
             windowController.showWindow(nil)
+            if let window = windowController.window {
+                window.center()
+                window.makeKeyAndOrderFront(nil)
+            }
+            NSApplication.shared.activate(ignoringOtherApps: true)
             configurationCoordinator.onThemeChange = { [weak self] theme in
                 self?.windowController?.updateTheme(theme)
             }
@@ -312,10 +317,16 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func restoreInitialWorkspace() throws -> Workspace {
-        if let snapshot = workspacePersistenceStore.load(),
-           let restoredWorkspace = try workspaceController.restorePersistedState(snapshot) {
-            persistWorkspaceState()
-            return restoredWorkspace
+        if let snapshot = workspacePersistenceStore.load() {
+            do {
+                if let restoredWorkspace = try workspaceController.restorePersistedState(snapshot) {
+                    persistWorkspaceState()
+                    return restoredWorkspace
+                }
+            } catch {
+                fputs("warning: failed to restore persisted workspace state: \(error)\n", stderr)
+                workspacePersistenceStore.save(nil)
+            }
         }
 
         let workspace = try workspaceController.openWorkspace(at: FileManager.default.currentDirectoryPath)

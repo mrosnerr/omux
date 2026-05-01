@@ -652,6 +652,26 @@ public final class WorkspaceController: @unchecked Sendable {
         try bridge.resize(paneID: paneID, columns: columns, rows: rows)
     }
 
+    @discardableResult
+    public func updateSplitProportions(
+        _ proportions: [Double],
+        forChildPaneIDs childPaneIDs: [PaneID]
+    ) -> Workspace? {
+        var updatedWorkspace: Workspace?
+        lock.lock()
+        if let index = activeWorkspaceIndex,
+           workspaces[index].updateSplitProportions(proportions, forChildPaneIDs: childPaneIDs) {
+            updatedWorkspace = workspaces[index]
+        }
+        lock.unlock()
+
+        if let updatedWorkspace {
+            onChange?(updatedWorkspace)
+        }
+
+        return updatedWorkspace
+    }
+
     public func focusedPaneID(in workspace: Workspace) -> PaneID? {
         workspace.focusedPane?.id
     }
@@ -901,9 +921,10 @@ public final class WorkspaceController: @unchecked Sendable {
                     focusedPaneID: paneStack.focusedPaneID
                 )
             )
-        case .split(let axis, let children):
+        case .split(let axis, let proportions, let children):
             return .split(
                 axis: axis,
+                proportions: proportions,
                 children: children.map(sanitizedLayoutNodeForPersistence)
             )
         }
@@ -971,9 +992,9 @@ public final class WorkspaceController: @unchecked Sendable {
                     focusedPaneID: focusedPaneID
                 )
             )
-        case .split(let axis, let children):
+        case .split(let axis, let proportions, let children):
             let normalizedChildren = children.map(normalizedRestoredLayoutNode)
-            return .split(axis: axis, children: normalizedChildren)
+            return .split(axis: axis, proportions: proportions, children: normalizedChildren)
         }
     }
 

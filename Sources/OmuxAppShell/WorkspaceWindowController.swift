@@ -32,11 +32,13 @@ final class WorkspaceWindowController: NSWindowController {
             backing: .buffered,
             defer: false
         )
+        window.minSize = NSSize(width: 720, height: 480)
         window.styleMask.insert(.fullSizeContentView)
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.title = workspace.name
         window.contentViewController = rootViewController
+        window.setContentSize(NSSize(width: 1220, height: 780))
         super.init(window: window)
         rootViewController.update(workspace: workspace)
     }
@@ -97,7 +99,7 @@ final class WorkspaceShellViewController: NSViewController {
 
     override func loadView() {
         view = NSView()
-        view.translatesAutoresizingMaskIntoConstraints = false
+        view.translatesAutoresizingMaskIntoConstraints = true
         view.wantsLayer = true
 
         let mainColumn = NSStackView()
@@ -403,7 +405,7 @@ final class WorkspaceShellViewController: NSViewController {
     private func makeLayoutView(
         for node: TabLayoutNode,
         focusedPaneID: PaneID
-    ) -> (view: NSView, focusedPaneView: HostedTerminalPaneView?) {
+    ) -> (view: NSView, focusedPaneView: HostedTerminalPaneView?, representativePaneID: PaneID?) {
         switch node {
         case .paneStack(let paneStack):
             let stackView = PaneStackView(
@@ -428,26 +430,42 @@ final class WorkspaceShellViewController: NSViewController {
                     _ = self?.controller.focus(paneID: paneID)
                 }
             )
-            return (stackView, paneStack.focusedPaneID == focusedPaneID ? stackView.focusedPaneView : nil)
+            return (
+                stackView,
+                paneStack.focusedPaneID == focusedPaneID ? stackView.focusedPaneView : nil,
+                paneStack.panes.first?.id
+            )
 
-        case .split(let axis, let children):
-            let splitView = SplitLayoutView(axis: axis)
+        case .split(let axis, let proportions, let children):
             var focusedPaneView: HostedTerminalPaneView?
+            var childViews: [NSView] = []
+            var childPaneIDs: [PaneID] = []
 
             for child in children {
                 let childLayout = makeLayoutView(for: child, focusedPaneID: focusedPaneID)
                 if focusedPaneView == nil {
                     focusedPaneView = childLayout.focusedPaneView
                 }
-                splitView.addArrangedSubview(childLayout.view)
-                if axis == .columns {
-                    childLayout.view.heightAnchor.constraint(equalTo: splitView.heightAnchor).isActive = true
-                } else {
-                    childLayout.view.widthAnchor.constraint(equalTo: splitView.widthAnchor).isActive = true
+                childViews.append(childLayout.view)
+                if let representativePaneID = childLayout.representativePaneID {
+                    childPaneIDs.append(representativePaneID)
                 }
             }
 
-            return (splitView, focusedPaneView)
+            let splitView = SplitLayoutView(
+                axis: axis,
+                proportions: proportions,
+                childPaneIDs: childPaneIDs,
+                onResize: { [weak self] childPaneIDs, proportions in
+                    _ = self?.controller.updateSplitProportions(proportions, forChildPaneIDs: childPaneIDs)
+                }
+            )
+            childViews.forEach { childView in
+                childView.translatesAutoresizingMaskIntoConstraints = true
+                splitView.addSubview(childView)
+            }
+
+            return (splitView, focusedPaneView, children.first?.representativePaneID)
         }
     }
 }
@@ -730,21 +748,255 @@ final class WorkspaceCanvasView: NSView {
 }
 
 @MainActor
-private final class SplitLayoutView: NSStackView {
-    init(axis: PaneSplitAxis) {
+private final class SplitLayoutView: NSView {
+    private struct DragState {
+        let dividerIndex: Int
+        let initialLocation: CGFloat
+        let initialLengths: [CGFloat]
+    }
+
+    private let axis: PaneSplitAxis
+    private let childPaneIDs: [PaneID]
+    private let onResize: ([PaneID], [Double]) -> Void
+    private var desiredProportions: [Double]
+    private var dividerRects: [NSRect] = []
+    private var dragState: DragState?
+
+    override var isFlipped: Bool { true }
+
+    init(
+        axis: PaneSplitAxis,
+        proportions: [Double],
+        childPaneIDs: [PaneID],
+        onResize: @escaping ([PaneID], [Double]) -> Void
+    ) {
+        self.axis = axis
+        self.childPaneIDs = childPaneIDs
+        self.onResize = onResize
+        self.desiredProportions = Self.normalizedProportions(proportions, count: childPaneIDs.count)
         super.init(frame: .zero)
-        orientation = axis == .columns ? .horizontal : .vertical
-        distribution = .fillEqually
-        spacing = ShellLayoutMetrics.splitSpacing
-        alignment = axis == .columns ? .height : .width
         translatesAutoresizingMaskIntoConstraints = false
-        setHuggingPriority(.defaultLow, for: .horizontal)
-        setHuggingPriority(.defaultLow, for: .vertical)
+        setContentHuggingPriority(.defaultLow, for: .horizontal)
+        setContentHuggingPriority(.defaultLow, for: .vertical)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         nil
+    }
+
+    override func layout() {
+        super.layout()
+        applyLayout()
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        NSColor.separatorColor.setFill()
+        for rect in dividerRects where dirtyRect.intersects(rect) {
+            rect.fill()
+        }
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        let cursor: NSCursor = axis == .columns ? .resizeLeftRight : .resizeUpDown
+        dividerRects.forEach { addCursorRect($0, cursor: cursor) }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let location = convert(event.locationInWindow, from: nil)
+        guard let dividerIndex = dividerRects.firstIndex(where: { $0.contains(location) }) else {
+            return
+        }
+
+        dragState = DragState(
+            dividerIndex: dividerIndex,
+            initialLocation: primaryCoordinate(of: location),
+            initialLengths: currentLengths()
+        )
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let dragState else {
+            return
+        }
+
+        let location = convert(event.locationInWindow, from: nil)
+        let delta = primaryCoordinate(of: location) - dragState.initialLocation
+        let leadingIndex = dragState.dividerIndex
+        let trailingIndex = leadingIndex + 1
+        guard dragState.initialLengths.indices.contains(leadingIndex),
+              dragState.initialLengths.indices.contains(trailingIndex)
+        else {
+            return
+        }
+
+        let minimumLeading = minimumPrimaryExtent(ofSubviewAt: leadingIndex)
+        let minimumTrailing = minimumPrimaryExtent(ofSubviewAt: trailingIndex)
+        let minimumDelta = minimumLeading - dragState.initialLengths[leadingIndex]
+        let maximumDelta = dragState.initialLengths[trailingIndex] - minimumTrailing
+        let clampedDelta = min(max(delta, minimumDelta), maximumDelta)
+
+        var updatedLengths = dragState.initialLengths
+        updatedLengths[leadingIndex] += clampedDelta
+        updatedLengths[trailingIndex] -= clampedDelta
+
+        desiredProportions = normalizedProportions(for: updatedLengths)
+        needsLayout = true
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard dragState != nil else {
+            return
+        }
+
+        dragState = nil
+        guard childPaneIDs.count == subviews.count, subviews.count > 1 else {
+            return
+        }
+        onResize(childPaneIDs, desiredProportions)
+    }
+
+    private func applyLayout() {
+        guard subviews.isEmpty == false else {
+            dividerRects = []
+            return
+        }
+
+        let spacing = ShellLayoutMetrics.splitSpacing
+        let availableLength = max(primaryLength(of: bounds.size) - spacing * CGFloat(max(subviews.count - 1, 0)), 0)
+        let lengths = resolvedLengths(totalLength: availableLength)
+
+        var cursor: CGFloat = 0
+        dividerRects = []
+
+        for (index, subview) in subviews.enumerated() {
+            let length = lengths[index]
+            let frame: NSRect
+            if axis == .columns {
+                frame = NSRect(x: cursor, y: 0, width: length, height: bounds.height)
+            } else {
+                frame = NSRect(x: 0, y: cursor, width: bounds.width, height: length)
+            }
+            subview.frame = frame
+            cursor += length
+
+            if index < subviews.count - 1 {
+                let dividerRect: NSRect
+                if axis == .columns {
+                    dividerRect = NSRect(x: cursor, y: 0, width: spacing, height: bounds.height)
+                } else {
+                    dividerRect = NSRect(x: 0, y: cursor, width: bounds.width, height: spacing)
+                }
+                dividerRects.append(dividerRect)
+                cursor += spacing
+            }
+        }
+
+        window?.invalidateCursorRects(for: self)
+        needsDisplay = true
+    }
+
+    private func currentLengths() -> [CGFloat] {
+        subviews.map { primaryLength(of: $0.frame.size) }
+    }
+
+    private func resolvedLengths(totalLength: CGFloat) -> [CGFloat] {
+        guard subviews.isEmpty == false else {
+            return []
+        }
+
+        if totalLength <= 0 {
+            return Array(repeating: 0, count: subviews.count)
+        }
+
+        let minimums = subviews.indices.map(minimumPrimaryExtent(ofSubviewAt:))
+        let minimumTotal = minimums.reduce(0, +)
+        guard minimumTotal < totalLength else {
+            return Array(repeating: totalLength / CGFloat(subviews.count), count: subviews.count)
+        }
+
+        let normalized = Self.normalizedProportions(desiredProportions, count: subviews.count)
+        var lengths = normalized.map { CGFloat($0) * totalLength }
+        var remainingIndices = Set(lengths.indices)
+        var remainingLength = totalLength
+
+        while true {
+            let undersized = remainingIndices.filter { lengths[$0] < minimums[$0] }
+            guard undersized.isEmpty == false else {
+                break
+            }
+
+            for index in undersized {
+                lengths[index] = minimums[index]
+                remainingIndices.remove(index)
+                remainingLength -= minimums[index]
+            }
+
+            guard remainingIndices.isEmpty == false else {
+                break
+            }
+
+            let remainingWeight = remainingIndices.reduce(CGFloat(0)) { partialResult, index in
+                partialResult + CGFloat(normalized[index])
+            }
+
+            for index in remainingIndices {
+                let weight = remainingWeight > 0 ? CGFloat(normalized[index]) / remainingWeight : 1 / CGFloat(remainingIndices.count)
+                lengths[index] = remainingLength * weight
+            }
+        }
+
+        let correction = totalLength - lengths.reduce(0, +)
+        if let lastIndex = lengths.indices.last {
+            lengths[lastIndex] += correction
+        }
+
+        return lengths
+    }
+
+    private func minimumPrimaryExtent(ofSubviewAt index: Int) -> CGFloat {
+        guard subviews.indices.contains(index) else {
+            return 0
+        }
+
+        let fittingSize = subviews[index].fittingSize
+        return max(primaryLength(of: fittingSize), 120)
+    }
+
+    private func primaryLength(of size: CGSize) -> CGFloat {
+        axis == .columns ? size.width : size.height
+    }
+
+    private func primaryCoordinate(of point: CGPoint) -> CGFloat {
+        axis == .columns ? point.x : point.y
+    }
+
+    private func normalizedProportions(for lengths: [CGFloat]) -> [Double] {
+        let total = lengths.reduce(0, +)
+        guard total > 0 else {
+            return Self.normalizedProportions([], count: lengths.count)
+        }
+        return lengths.map { Double($0 / total) }
+    }
+
+    private static func normalizedProportions(_ proportions: [Double], count: Int) -> [Double] {
+        guard count > 0 else {
+            return []
+        }
+
+        guard proportions.count == count,
+              proportions.allSatisfy({ $0.isFinite && $0 > 0 })
+        else {
+            return Array(repeating: 1.0 / Double(count), count: count)
+        }
+
+        let total = proportions.reduce(0, +)
+        guard total > 0 else {
+            return Array(repeating: 1.0 / Double(count), count: count)
+        }
+        return proportions.map { $0 / total }
     }
 }
 
