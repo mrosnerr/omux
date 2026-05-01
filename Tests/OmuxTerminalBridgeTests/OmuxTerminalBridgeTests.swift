@@ -328,6 +328,25 @@ final class OmuxTerminalBridgeTests: XCTestCase {
     }
 
     @MainActor
+    func testCGhosttyRuntimeClipboardCallbacksResolveSurfaceUserdata() throws {
+        let runtime = CGhosttyRuntime()
+        let paneID = PaneID(rawValue: "clipboard-callback")
+        let runtimeSurfaceID = try runtime.createSurface(for: paneID)
+        let hostedView = try XCTUnwrap(
+            runtime.makeHostedSurfaceView(for: paneID, runtimeSurfaceID: runtimeSurfaceID)
+        )
+
+        let context = try XCTUnwrap(
+            HostedRuntimeClipboard.callbackContext(
+                fromSurfaceUserdata: Unmanaged.passUnretained(hostedView).toOpaque()
+            )
+        )
+
+        XCTAssertTrue(context.runtime === runtime)
+        XCTAssertEqual(context.runtimeSurfaceID, runtimeSurfaceID)
+    }
+
+    @MainActor
     func testHostedRuntimeClipboardWritesTextPlainContentToStandardPasteboard() {
         let pasteboard = NSPasteboard(name: NSPasteboard.Name(UUID().uuidString))
         pasteboard.clearContents()

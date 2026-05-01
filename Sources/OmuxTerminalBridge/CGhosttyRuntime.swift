@@ -19,6 +19,13 @@ private final class GhosttyHostedSurfaceView: RuntimeTerminalHostView {
     private weak var runtime: CGhosttyRuntime?
     private let runtimeSurfaceID: String
 
+    fileprivate var clipboardCallbackContext: (runtime: CGhosttyRuntime, runtimeSurfaceID: String)? {
+        guard let runtime else {
+            return nil
+        }
+        return (runtime, runtimeSurfaceID)
+    }
+
     init(runtime: CGhosttyRuntime, runtimeSurfaceID: String) {
         self.runtime = runtime
         self.runtimeSurfaceID = runtimeSurfaceID
@@ -187,15 +194,21 @@ public final class CGhosttyRuntime: @unchecked Sendable, GhosttyRuntime {
                     return owner.handleAction(target: target, action: action)
                 },
                 read_clipboard_cb: { userdata, location, state in
-                    guard let userdata else { return false }
-                    let owner = Unmanaged<CGhosttyRuntime>.fromOpaque(userdata).takeUnretainedValue()
-                    return owner.readClipboard(for: location, state: state)
+                    guard let context = HostedRuntimeClipboard.callbackContext(fromSurfaceUserdata: userdata) else {
+                        return false
+                    }
+                    return context.runtime.readClipboard(
+                        for: location,
+                        state: state,
+                        runtimeSurfaceID: context.runtimeSurfaceID
+                    )
                 },
                 confirm_read_clipboard_cb: { _, _, _, _ in },
                 write_clipboard_cb: { userdata, location, content, len, confirm in
-                    guard let userdata else { return }
-                    let owner = Unmanaged<CGhosttyRuntime>.fromOpaque(userdata).takeUnretainedValue()
-                    owner.writeClipboard(
+                    guard let context = HostedRuntimeClipboard.callbackContext(fromSurfaceUserdata: userdata) else {
+                        return
+                    }
+                    context.runtime.writeClipboard(
                         for: location,
                         content: content,
                         len: len,
@@ -1079,10 +1092,11 @@ public final class CGhosttyRuntime: @unchecked Sendable, GhosttyRuntime {
 
     private func readClipboard(
         for location: ghostty_clipboard_e,
-        state: UnsafeMutableRawPointer?
+        state: UnsafeMutableRawPointer?,
+        runtimeSurfaceID: String
     ) -> Bool {
         guard location == GHOSTTY_CLIPBOARD_STANDARD,
-              let surface = firstSurface(for: location)
+              let surface = surface(for: runtimeSurfaceID)
         else {
             return false
         }
@@ -1113,16 +1127,10 @@ public final class CGhosttyRuntime: @unchecked Sendable, GhosttyRuntime {
         HostedRuntimeClipboard.write(items, for: location)
     }
 
-    private func firstSurface(for location: ghostty_clipboard_e) -> ghostty_surface_t? {
-        guard location == GHOSTTY_CLIPBOARD_STANDARD else {
-            return nil
-        }
+    private func surface(for runtimeSurfaceID: String) -> ghostty_surface_t? {
         lock.lock()
         defer { lock.unlock() }
-        if let focusedRuntimeSurfaceID {
-            return surfaces[focusedRuntimeSurfaceID]?.surface
-        }
-        return surfaces.values.compactMap(\.surface).first
+        return surfaces[runtimeSurfaceID]?.surface
     }
 
     private func replaceCompiledConfig(path: URL, updateRunningApp: Bool) throws -> [OmuxConfigDiagnostic] {
@@ -1245,6 +1253,29 @@ enum HostedRuntimeClipboard {
             return nil
         }
         return .general
+    }
+
+    static func callbackContext(
+        fromSurfaceUserdata userdata: UnsafeMutableRawPointer?
+    ) -> (runtime: CGhosttyRuntime, runtimeSurfaceID: String)? {
+        guard let userdata else {
+            return nil
+        }
+
+        let hostView = Unmanaged<GhosttyHostedSurfaceView>.fromOpaque(userdata).takeUnretainedValue()
+        if Thread.isMainThread {
+            return MainActor.assumeIsolated {
+                hostView.clipboardCallbackContext
+            }
+        }
+
+        var context: (runtime: CGhosttyRuntime, runtimeSurfaceID: String)?
+        DispatchQueue.main.sync {
+            context = MainActor.assumeIsolated {
+                hostView.clipboardCallbackContext
+            }
+        }
+        return context
     }
 }
 
