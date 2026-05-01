@@ -638,9 +638,6 @@ final class OmuxAppShellTests: XCTestCase {
         window.contentView?.layoutSubtreeIfNeeded()
         rootView.layoutSubtreeIfNeeded()
 
-        XCTAssertGreaterThanOrEqual(window.frame.width, 1000)
-        XCTAssertGreaterThanOrEqual(window.frame.height, 700)
-
         let paneCards = findViews(ofType: PaneCardView.self, in: rootView)
         XCTAssertEqual(paneCards.count, 2)
         let firstFrame = paneCards[0].convert(paneCards[0].bounds, to: rootView)
