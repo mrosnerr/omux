@@ -10,6 +10,9 @@ DerivedData/
 *.xcuserstate
 xcuserdata/
 
+# Generated release output
+/dist/
+
 # Vendored Ghostty build output
 Vendor/ghostty/.zig-cache/
 Vendor/ghostty/zig-out/

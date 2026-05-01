@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  publish-release:
+    runs-on: macos-15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Cache Ghostty build state
+        id: ghostty-cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            .build/tools
+            Vendor/ghostty/macos/GhosttyKit.xcframework
+            Vendor/ghostty/macos/GhosttyKit.xcframework.omux-build-stamp
+            Vendor/ghostty/.zig-cache
+            Vendor/ghostty/zig-out
+          key: ${{ runner.os }}-ghostty-${{ hashFiles('Vendor/ghostty/PINNED_REF', 'Scripts/build-ghostty.sh') }}
+
+      - name: Cache Homebrew downloads
+        uses: actions/cache@v5
+        with:
+          path: ~/Library/Caches/Homebrew
+          key: ${{ runner.os }}-brew-zig15
+          restore-keys: |
+            ${{ runner.os }}-brew-
+
+      - name: Ensure Metal tools are available
+        if: steps.ghostty-cache.outputs.cache-hit != 'true'
+        run: |
+          if ! xcrun -f metal >/dev/null 2>&1; then
+            sudo xcodebuild -downloadComponent MetalToolchain
+          fi
+
+      - name: Install Zig 0.15
+        if: steps.ghostty-cache.outputs.cache-hit != 'true'
+        run: brew install zig@0.15
+
+      - name: Derive release metadata
+        id: release
+        run: |
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build vendored Ghostty runtime
+        run: make setup
+
+      - name: Verify project
+        run: make verify
+
+      - name: Package release assets
+        run: make package-release RELEASE_VERSION="${{ steps.release.outputs.version }}" BUNDLE_VERSION="${{ github.run_number }}"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/release/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true

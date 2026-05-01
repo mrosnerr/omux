@@ -130,6 +130,16 @@ The repository now includes an initial Swift package foundation for:
 
 See [docs/development.md](./docs/development.md) for module boundaries and foundation rules.
 
+## Releases
+
+OpenMUX now ships with a first-pass GitHub Release flow for downloadable artifacts:
+
+- local packaging via `make package-release RELEASE_VERSION=X.Y.Z`
+- tag-driven GitHub Releases on `v*` tags
+- generated release notes configured through [`.github/release.yml`](./.github/release.yml)
+
+The current automation publishes unsigned macOS app and CLI archives plus checksums. See [docs/releasing.md](./docs/releasing.md) for the exact flow and the follow-up path to Developer ID signing and notarized DMG distribution.
+
 ## Contributing
 
 Please read [CONTRIBUTING](./CONTRIBUTING.md) and [CODE OF CONDUCT](./CODE_OF_CONDUCT.md) before opening a pull request.

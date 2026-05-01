@@ -56,6 +56,7 @@ make build
 make test
 make verify
 make smoke
+make package-release RELEASE_VERSION=0.1.0
 swift build
 swift test
 swift run omux config doctor
@@ -76,6 +77,8 @@ swift run OpenMUXApp
 ```
 
 If you want one stable, native entrypoint for daily development, prefer the root `Makefile`: run `make setup` once to build the vendored Ghostty runtime, then use `make dev`, `make build`, `make test`, `make verify`, or `make smoke`.
+
+For release packaging and GitHub Releases, see [docs/releasing.md](./releasing.md).
 
 ## Workspace shell status
 

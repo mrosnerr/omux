@@ -1,4 +1,4 @@
-.PHONY: help setup build-ghostty build test verify smoke dev app cli-help
+.PHONY: help setup build-ghostty build test verify smoke publish-unsigned package-release dev app cli-help
 
 help:
 	@printf "OpenMUX development commands\n\n"
@@ -8,6 +8,8 @@ help:
 	@printf "  make test          Run the Swift test suite\n"
 	@printf "  make verify        Run build and test\n"
 	@printf "  make smoke         Launch and sample OpenMUXApp as a smoke test\n"
+	@printf "  make publish-unsigned Build dist/OpenMUX.app (unsigned)\n"
+	@printf "  make package-release RELEASE_VERSION=X.Y.Z Build GitHub Release assets under dist/release/\n"
 	@printf "  make dev           Launch OpenMUXApp\n"
 	@printf "  make app           Launch OpenMUXApp\n"
 	@printf "  make cli-help      Show omux CLI help\n"
@@ -27,6 +29,16 @@ verify: build test
 
 smoke:
 	./Scripts/smoke-openmux-app.sh
+
+publish-unsigned:
+	./Scripts/publish-unsigned.sh
+
+package-release:
+	@if [ -z "$(RELEASE_VERSION)" ]; then \
+		printf 'error: RELEASE_VERSION is required\n' >&2; \
+		exit 1; \
+	fi
+	./Scripts/package-release.sh
 
 dev:
 	swift run OpenMUXApp

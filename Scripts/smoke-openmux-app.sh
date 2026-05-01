@@ -23,8 +23,17 @@ name = "dracula"
 EOF
 
 cd "$ROOT_DIR"
-swift build --product OpenMUXApp >/dev/null
-BIN_PATH="$(swift build --show-bin-path)/OpenMUXApp"
+if [ "${OPENMUX_APP_BIN:-}" ]; then
+  BIN_PATH="$OPENMUX_APP_BIN"
+else
+  swift build --product OpenMUXApp >/dev/null
+  BIN_PATH="$(swift build --show-bin-path)/OpenMUXApp"
+fi
+
+if [ ! -x "$BIN_PATH" ]; then
+  echo "OpenMUXApp binary is not executable: $BIN_PATH" >&2
+  exit 1
+fi
 
 OMUX_HOME="$OMUX_HOME_DIR" "$BIN_PATH" >"$LOG_FILE" 2>&1 &
 APP_PID=$!
