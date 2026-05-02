@@ -55,6 +55,30 @@ struct OmuxThemeTests {
     }
 
     @Test
+    func packagedAppResourceBundleLoadsFromContentsResources() throws {
+        let root = try temporaryHome()
+        defer { cleanup(root) }
+
+        let appURL = root.appendingPathComponent("OpenMUX.app", isDirectory: true)
+        let contentsURL = appURL.appendingPathComponent("Contents", isDirectory: true)
+        let resourcesURL = contentsURL.appendingPathComponent("Resources", isDirectory: true)
+        let executableURL = contentsURL.appendingPathComponent("MacOS/OpenMUXApp", isDirectory: false)
+        let themeBundleURL = resourcesURL.appendingPathComponent("OpenMUX_OmuxTheme.bundle", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: themeBundleURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: executableURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: executableURL)
+
+        let bundle = OmuxThemeRegistry.packagedResourceBundle(
+            mainBundleURL: appURL,
+            mainResourceURL: resourcesURL,
+            mainExecutableURL: executableURL
+        )
+
+        #expect(bundle?.bundleURL == themeBundleURL)
+    }
+
+    @Test
     func rejectsThemeInheritance() throws {
         let home = try temporaryHome()
         defer { cleanup(home) }

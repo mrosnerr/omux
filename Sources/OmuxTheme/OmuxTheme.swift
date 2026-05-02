@@ -139,6 +139,8 @@ public struct OmuxThemeLoadResult: Equatable, Sendable {
 }
 
 public struct OmuxThemeRegistry {
+    private static let bundledThemesBundleName = "OpenMUX_OmuxTheme.bundle"
+
     private let bundle: Bundle
     private let fileManager: FileManager
     private let userThemesDirectoryURL: URL
@@ -148,9 +150,40 @@ public struct OmuxThemeRegistry {
         fileManager: FileManager = .default,
         userThemesDirectoryURL: URL = OmuxConfigPaths.themesDirectoryURL
     ) {
-        self.bundle = bundle ?? .module
+        self.bundle = bundle ?? Self.packagedResourceBundle(fileManager: fileManager) ?? .module
         self.fileManager = fileManager
         self.userThemesDirectoryURL = userThemesDirectoryURL
+    }
+
+    static func packagedResourceBundle(
+        fileManager: FileManager = .default,
+        mainBundleURL: URL = Bundle.main.bundleURL,
+        mainResourceURL: URL? = Bundle.main.resourceURL,
+        mainExecutableURL: URL? = Bundle.main.executableURL
+    ) -> Bundle? {
+        let executableContentsURL = mainExecutableURL?
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+
+        let candidates = [
+            mainResourceURL?.appendingPathComponent(Self.bundledThemesBundleName, isDirectory: true),
+            mainBundleURL
+                .appendingPathComponent("Contents", isDirectory: true)
+                .appendingPathComponent("Resources", isDirectory: true)
+                .appendingPathComponent(Self.bundledThemesBundleName, isDirectory: true),
+            executableContentsURL?
+                .appendingPathComponent("Resources", isDirectory: true)
+                .appendingPathComponent(Self.bundledThemesBundleName, isDirectory: true),
+            mainBundleURL.appendingPathComponent(Self.bundledThemesBundleName, isDirectory: true),
+        ].compactMap { $0 }
+
+        for url in candidates where fileManager.fileExists(atPath: url.path) {
+            if let bundle = Bundle(path: url.path) {
+                return bundle
+            }
+        }
+
+        return nil
     }
 
     public func loadBuiltInThemes() -> ([OmuxTheme], [OmuxConfigDiagnostic]) {
