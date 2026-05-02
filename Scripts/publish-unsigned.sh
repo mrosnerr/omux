@@ -110,4 +110,8 @@ EOF
 
 plutil -lint "$CONTENTS_DIR/Info.plist" >/dev/null
 
+codesign --force --sign - "$MACOS_DIR/omux" >/dev/null
+codesign --force --sign - "$BUNDLE_PATH" >/dev/null
+codesign --verify --deep --strict --verbose=2 "$BUNDLE_PATH" >/dev/null
+
 printf 'Unsigned app bundle created at %s\n' "$BUNDLE_PATH"

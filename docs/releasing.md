@@ -16,7 +16,7 @@ That command writes artifacts to `dist/release/`:
 - `omux-<version>-macos.tar.gz`
 - `checksums.txt`
 
-The app archive is produced from the existing unsigned app bundle flow in `Scripts/publish-unsigned.sh`. The CLI archive packages the release-built `omux` binary plus the repository license.
+The app archive is produced from the existing unsigned app bundle flow in `Scripts/publish-unsigned.sh`. That flow ad-hoc signs the assembled app bundle so macOS sees a structurally valid bundle, but it does not use a Developer ID certificate or notarization. The CLI archive packages the release-built `omux` binary plus the repository license.
 
 The app bundle also includes a bundled CLI binary at `OpenMUX.app/Contents/MacOS/omux`, so users who install only the app can:
 
@@ -50,7 +50,7 @@ Generated release notes are configured through [`.github/release.yml`](../.githu
 
 ## Current distribution status
 
-The current GitHub Release automation publishes **unsigned** macOS artifacts. That is useful for early testers and internal dogfooding, but a public macOS release should move to:
+The current GitHub Release automation publishes **unsigned** macOS artifacts. The app bundle is ad-hoc signed for bundle integrity only, which is useful for early testers and internal dogfooding, but a public macOS release should move to:
 
 1. Developer ID signing
 2. notarized `.dmg` distribution

@@ -6,13 +6,13 @@ This guide is for people who want to use OpenMUX, not contribute to its internal
 
 ## 1. Install the app
 
-OpenMUX currently publishes early unsigned macOS artifacts through [GitHub Releases](https://github.com/finger-gun/omux/releases).
+OpenMUX currently publishes early macOS artifacts through [GitHub Releases](https://github.com/finger-gun/omux/releases).
 
 1. Download the latest `OpenMUX-<version>-macos-unsigned.zip` from the project releases.
 2. Unzip it and move `OpenMUX.app` to `/Applications`.
 3. Open the app from Finder.
 
-Because the current artifacts are unsigned, macOS may require you to approve the app from **System Settings -> Privacy & Security** the first time you open it. The release flow is expected to move to signed and notarized artifacts later.
+The current app archive is ad-hoc signed so the bundle is structurally valid, but it is not yet Developer ID signed or notarized. macOS may require you to approve the app from **System Settings -> Privacy & Security** the first time you open it. The release flow is expected to move to fully signed and notarized artifacts later.
 
 If you are testing from source instead of a release artifact, see [Development notes](./development.md).
 
