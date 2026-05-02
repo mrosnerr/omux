@@ -139,6 +139,52 @@ final class OmuxAppShellTests: XCTestCase {
         XCTAssertEqual(closed.focusedTab?.focusedPaneID, originalPaneID)
     }
 
+    func testWorkspaceControllerCreatesPaneTabInExplicitStack() throws {
+        let controller = WorkspaceController(
+            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            hookRunner: ExternalHookRunner()
+        )
+
+        let workspace = try controller.openWorkspace(at: "/tmp")
+        let originalPaneID = try XCTUnwrap(workspace.focusedPane?.id)
+        let splitWorkspace = try XCTUnwrap(controller.splitFocusedPane(axis: .rows))
+        let splitPaneID = try XCTUnwrap(splitWorkspace.focusedPane?.id)
+        let targetStackID = try XCTUnwrap(splitWorkspace.focusedTab?.rootLayout.paneStack(containingPaneID: splitPaneID)?.id)
+        let originalStackID = try XCTUnwrap(splitWorkspace.focusedTab?.rootLayout.paneStack(containingPaneID: originalPaneID)?.id)
+
+        _ = try XCTUnwrap(controller.focus(paneID: originalPaneID))
+        let updatedWorkspace = try XCTUnwrap(controller.createPaneTab(in: targetStackID))
+        let originalStack = try XCTUnwrap(updatedWorkspace.focusedTab?.rootLayout.paneStack(id: originalStackID))
+        let targetStack = try XCTUnwrap(updatedWorkspace.focusedTab?.rootLayout.paneStack(id: targetStackID))
+
+        XCTAssertEqual(originalStack.panes.map(\.id), [originalPaneID])
+        XCTAssertEqual(targetStack.panes.count, 2)
+        XCTAssertEqual(updatedWorkspace.focusedPane?.id, targetStack.focusedPaneID)
+        XCTAssertNotEqual(updatedWorkspace.focusedPane?.id, originalPaneID)
+    }
+
+    func testNewPanesDoNotInheritTerminalReportedTitleFromFocusedPane() throws {
+        let runtime = ActionEmittingGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let controller = WorkspaceController(
+            bridge: bridge,
+            hookRunner: ExternalHookRunner()
+        )
+
+        let workspace = try controller.openWorkspace(at: "/tmp/omux")
+        let originalPane = try XCTUnwrap(workspace.focusedPane)
+        let runtimeSurfaceID = try XCTUnwrap(bridge.surface(for: originalPane.id)?.runtimeSurfaceID)
+
+        runtime.emit(.titleChanged("GitHub Copilot"), on: runtimeSurfaceID)
+        XCTAssertEqual(controller.activeWorkspace()?.focusedPane?.title, "GitHub Copilot")
+
+        let splitWorkspace = try XCTUnwrap(controller.splitFocusedPane(axis: .columns))
+        XCTAssertEqual(splitWorkspace.focusedPane?.title, "omux")
+
+        let paneTabWorkspace = try XCTUnwrap(controller.createPaneTab())
+        XCTAssertEqual(paneTabWorkspace.focusedPane?.title, "omux")
+    }
+
     func testWorkspaceControllerPublishesSharedActionEvents() throws {
         let controller = WorkspaceController(
             bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
@@ -736,8 +782,45 @@ final class OmuxAppShellTests: XCTestCase {
 
         XCTAssertTrue(window.styleMask.contains(.fullSizeContentView))
         XCTAssertTrue(window.titlebarAppearsTransparent)
+        XCTAssertTrue(window.isMovableByWindowBackground)
         XCTAssertEqual(window.titleVisibility, .hidden)
         XCTAssertEqual(window.title, "Project Alpha")
+        XCTAssertTrue(window.contentViewController?.view is WorkspaceRootView)
+    }
+
+    @MainActor
+    func testWorkspaceRootViewDoubleClickInUnifiedTitlebarRequestsZoom() throws {
+        let rootView = WorkspaceRootView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        rootView.titlebarHeightOverrideForTesting = 36
+        let window = NSWindow(
+            contentRect: rootView.bounds,
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = rootView
+        var zoomRequested = false
+        rootView.titlebarDoubleClickHandler = { _ in
+            zoomRequested = true
+        }
+
+        let event = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .leftMouseDown,
+                location: NSPoint(x: 80, y: 470),
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: window.windowNumber,
+                context: nil,
+                eventNumber: 1,
+                clickCount: 2,
+                pressure: 1
+            )
+        )
+
+        rootView.mouseDown(with: event)
+
+        XCTAssertTrue(zoomRequested)
     }
 
     @MainActor
@@ -763,6 +846,27 @@ final class OmuxAppShellTests: XCTestCase {
         let secondFrame = paneCards[1].convert(paneCards[1].bounds, to: rootView)
         XCTAssertEqual(firstFrame.minY, secondFrame.minY, accuracy: 1)
         XCTAssertNotEqual(firstFrame.minX, secondFrame.minX)
+    }
+
+    @MainActor
+    func testSplitDividerDoesNotOptIntoWindowBackgroundDragging() throws {
+        let controller = WorkspaceController(
+            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            hookRunner: ExternalHookRunner()
+        )
+
+        _ = try controller.openWorkspace(at: "/tmp")
+        let splitWorkspace = try XCTUnwrap(controller.splitFocusedPane(axis: .columns))
+        let windowController = WorkspaceWindowController(workspace: splitWorkspace, controller: controller)
+        let window = try XCTUnwrap(windowController.window)
+        windowController.showWindow(nil)
+        let rootView = try XCTUnwrap(window.contentViewController?.view)
+
+        window.contentView?.layoutSubtreeIfNeeded()
+        rootView.layoutSubtreeIfNeeded()
+
+        let splitLayoutView = try XCTUnwrap(findView(ofType: SplitLayoutView.self, in: rootView))
+        XCTAssertFalse(splitLayoutView.mouseDownCanMoveWindow)
     }
 
     @MainActor
@@ -1001,6 +1105,39 @@ final class OmuxAppShellTests: XCTestCase {
 
         XCTAssertEqual(controller.activeWorkspace()?.focusedPane?.id, secondPane.id)
         XCTAssertNotEqual(firstPane.id, secondPane.id)
+    }
+
+    @MainActor
+    func testPaneTabAddButtonCreatesTabInClickedPaneStack() throws {
+        let controller = WorkspaceController(
+            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            hookRunner: ExternalHookRunner()
+        )
+
+        let workspace = try controller.openWorkspace(at: "/tmp")
+        let originalPaneID = try XCTUnwrap(workspace.focusedPane?.id)
+        let splitWorkspace = try XCTUnwrap(controller.splitFocusedPane(axis: .rows))
+        let splitPaneID = try XCTUnwrap(splitWorkspace.focusedPane?.id)
+        let targetStackID = try XCTUnwrap(splitWorkspace.focusedTab?.rootLayout.paneStack(containingPaneID: splitPaneID)?.id)
+        let originalStackID = try XCTUnwrap(splitWorkspace.focusedTab?.rootLayout.paneStack(containingPaneID: originalPaneID)?.id)
+        let refocusedWorkspace = try XCTUnwrap(controller.focus(paneID: originalPaneID))
+        let windowController = WorkspaceWindowController(workspace: refocusedWorkspace, controller: controller)
+        let window = try XCTUnwrap(windowController.window)
+        let rootView = try XCTUnwrap(window.contentViewController?.view)
+
+        let addButton = try XCTUnwrap(
+            findViews(ofType: NSControl.self, in: rootView)
+                .first { $0.identifier?.rawValue == "pane-tab-add-\(targetStackID.rawValue)" }
+        )
+
+        addButton.mouseDown(with: makeMouseEvent(window: window))
+
+        let updatedWorkspace = try XCTUnwrap(controller.activeWorkspace())
+        let originalStack = try XCTUnwrap(updatedWorkspace.focusedTab?.rootLayout.paneStack(id: originalStackID))
+        let targetStack = try XCTUnwrap(updatedWorkspace.focusedTab?.rootLayout.paneStack(id: targetStackID))
+        XCTAssertEqual(originalStack.panes.map(\.id), [originalPaneID])
+        XCTAssertEqual(targetStack.panes.count, 2)
+        XCTAssertEqual(updatedWorkspace.focusedPane?.id, targetStack.focusedPaneID)
     }
 
     @MainActor

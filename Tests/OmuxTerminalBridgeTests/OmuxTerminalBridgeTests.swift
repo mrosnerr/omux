@@ -350,6 +350,110 @@ final class OmuxTerminalBridgeTests: XCTestCase {
     }
 
     @MainActor
+    func testRuntimeHostedViewPastesDroppedFilePathsAsText() throws {
+        let runtime = InspectableGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
+        let pane = Pane(title: "Runtime", session: session)
+
+        _ = try bridge.attach(session: session, to: pane)
+        _ = bridge.makeHostedPaneView(for: pane, isFocused: true) { _ in }
+        let runtimeView = try XCTUnwrap(runtime.hostedViews["inspect:\(pane.id.rawValue)"])
+
+        XCTAssertTrue(runtimeView.insertDroppedFileURLs([
+            URL(fileURLWithPath: "/Users/me/Desktop/Screenshot 2026-05-01.png"),
+        ]))
+
+        XCTAssertEqual(runtime.committedTexts, ["'/Users/me/Desktop/Screenshot 2026-05-01.png'"])
+    }
+
+    func testDroppedFilePathTextIsShellQuoted() {
+        let pasteText = TerminalDroppedFileText.pasteText(for: [
+            URL(fileURLWithPath: "/tmp/plain.txt"),
+            URL(fileURLWithPath: "/tmp/has space/it's.png"),
+        ])
+
+        XCTAssertEqual(pasteText, "'/tmp/plain.txt' '/tmp/has space/it'\\''s.png'")
+    }
+
+    @MainActor
+    func testRuntimeHostedViewRoutesCommandArrowAsTerminalNavigationKeyEvents() throws {
+        let runtime = InspectableGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
+        let pane = Pane(title: "Runtime", session: session)
+
+        _ = try bridge.attach(session: session, to: pane)
+        _ = bridge.makeHostedPaneView(for: pane, isFocused: true) { _ in }
+        let runtimeView = try XCTUnwrap(runtime.hostedViews["inspect:\(pane.id.rawValue)"])
+
+        runtimeView.keyDown(with: try makeKeyEvent(keyCode: 123, characters: "", modifiers: .command))
+        runtimeView.keyDown(with: try makeKeyEvent(keyCode: 124, characters: "", modifiers: .command))
+
+        XCTAssertEqual(runtime.handledEvents.map(\.key), ["a", "e"])
+        XCTAssertEqual(runtime.handledEvents.map(\.modifiers), [[.leftControl], [.leftControl]])
+        XCTAssertTrue(runtime.committedTexts.isEmpty)
+        XCTAssertTrue(runtime.accumulatedEvents.isEmpty)
+    }
+
+    @MainActor
+    func testRuntimeHostedViewKeepsOtherCommandShortcutsOutOfTerminalInput() throws {
+        let runtime = InspectableGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
+        let pane = Pane(title: "Runtime", session: session)
+
+        _ = try bridge.attach(session: session, to: pane)
+        _ = bridge.makeHostedPaneView(for: pane, isFocused: true) { _ in }
+        let runtimeView = try XCTUnwrap(runtime.hostedViews["inspect:\(pane.id.rawValue)"])
+
+        runtimeView.keyDown(with: try makeKeyEvent(keyCode: 9, characters: "v", modifiers: .command))
+
+        XCTAssertTrue(runtime.committedTexts.isEmpty)
+        XCTAssertTrue(runtime.accumulatedEvents.isEmpty)
+    }
+
+    func testBridgeHandlesCommandArrowShortcutAsNavigationKeyEventForRuntime() throws {
+        let runtime = InspectableGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
+        let pane = Pane(title: "Runtime", session: session)
+
+        _ = try bridge.attach(session: session, to: pane)
+
+        try bridge.handle(
+            NormalizedKeyEvent(
+                keyCode: 123,
+                key: "",
+                text: nil,
+                modifiers: [.leftCommand],
+                phase: .keyDown,
+                isRepeat: false,
+                route: .shortcut
+            ),
+            inPane: pane.id
+        )
+
+        XCTAssertEqual(runtime.handledEvents.map(\.key), ["a"])
+        XCTAssertEqual(runtime.handledEvents.map(\.modifiers), [[.leftControl]])
+        XCTAssertTrue(runtime.sentTexts.isEmpty)
+    }
+
+    func testCommandArrowNavigationUsesControlTextForFallbackPty() {
+        let event = NormalizedKeyEvent(
+            keyCode: 124,
+            key: "",
+            text: nil,
+            modifiers: [.leftCommand],
+            phase: .keyDown,
+            isRepeat: false,
+            route: .shortcut
+        )
+
+        XCTAssertEqual(TerminalCommandArrowNavigation.controlText(for: event), "\u{5}")
+    }
+
+    @MainActor
     func testRuntimeHostedViewTracksPointerScrollAndPressureEvents() throws {
         let runtime = InspectableGhosttyRuntime()
         let bridge = GhosttyTerminalBridge(runtime: runtime)
@@ -1063,6 +1167,27 @@ final class OmuxTerminalBridgeTests: XCTestCase {
         bridge.removeObserver(for: pane.id, token: token)
     }
 
+    private func makeKeyEvent(
+        keyCode: UInt16,
+        characters: String,
+        modifiers: NSEvent.ModifierFlags
+    ) throws -> NSEvent {
+        try XCTUnwrap(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: modifiers,
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                characters: characters,
+                charactersIgnoringModifiers: characters,
+                isARepeat: false,
+                keyCode: keyCode
+            )
+        )
+    }
+
     func testRuntimeOwnedRunSubmitsReturnButSendTextDoesNot() throws {
         let runtime = InspectableGhosttyRuntime()
         let bridge = GhosttyTerminalBridge(runtime: runtime)
@@ -1075,10 +1200,10 @@ final class OmuxTerminalBridgeTests: XCTestCase {
         try bridge.send(text: "draft text", toPane: pane.id)
 
         let runtimeSurfaceID = "inspect:\(pane.id.rawValue)"
-        XCTAssertEqual(runtime.sentTexts[runtimeSurfaceID], ["echo hello", "draft text"])
-        XCTAssertEqual(runtime.handledEvents[runtimeSurfaceID]?.count, 1)
-        XCTAssertEqual(runtime.handledEvents[runtimeSurfaceID]?.first?.keyCode, 36)
-        XCTAssertEqual(runtime.handledEvents[runtimeSurfaceID]?.first?.text, "\r")
+        XCTAssertEqual(runtime.sentTextsBySurface[runtimeSurfaceID], ["echo hello", "draft text"])
+        XCTAssertEqual(runtime.handledEventsBySurface[runtimeSurfaceID]?.count, 1)
+        XCTAssertEqual(runtime.handledEventsBySurface[runtimeSurfaceID]?.first?.keyCode, 36)
+        XCTAssertEqual(runtime.handledEventsBySurface[runtimeSurfaceID]?.first?.text, "\r")
     }
 }
 
@@ -1090,10 +1215,12 @@ private final class InspectableGhosttyRuntime: GhosttyRuntime {
     private(set) var visiblePalette: [Int: String] = [:]
     private(set) var hostedViews: [String: InspectableRuntimeSurfaceView] = [:]
     private(set) var committedTexts: [String] = []
+    private(set) var sentTexts: [String] = []
+    private(set) var handledEvents: [NormalizedKeyEvent] = []
     private(set) var preeditUpdates: [String?] = []
     private(set) var accumulatedEvents: [NormalizedKeyEvent] = []
-    private(set) var sentTexts: [String: [String]] = [:]
-    private(set) var handledEvents: [String: [NormalizedKeyEvent]] = [:]
+    private(set) var sentTextsBySurface: [String: [String]] = [:]
+    private(set) var handledEventsBySurface: [String: [NormalizedKeyEvent]] = [:]
     private(set) var bindingActions: [String] = []
     private(set) var mouseButtons: [(state: ghostty_input_mouse_state_e, buttonNumber: Int, modifiers: KeyModifiers)] = []
     private(set) var mousePositions: [(point: CGPoint?, modifiers: KeyModifiers)] = []
@@ -1129,6 +1256,9 @@ private final class InspectableGhosttyRuntime: GhosttyRuntime {
             return existing
         }
         let view = InspectableRuntimeSurfaceView(frame: .zero)
+        view.normalizedKeyHandler = { [weak self] event in
+            self?.handledEvents.append(event)
+        }
         view.committedTextHandler = { [weak self] text in
             self?.committedTexts.append(text)
         }
@@ -1174,11 +1304,13 @@ private final class InspectableGhosttyRuntime: GhosttyRuntime {
     }
 
     func send(text: String, to runtimeSurfaceID: String) throws {
-        sentTexts[runtimeSurfaceID, default: []].append(text)
+        sentTexts.append(text)
+        sentTextsBySurface[runtimeSurfaceID, default: []].append(text)
     }
 
     func handle(_ event: NormalizedKeyEvent, on runtimeSurfaceID: String) throws {
-        handledEvents[runtimeSurfaceID, default: []].append(event)
+        handledEvents.append(event)
+        handledEventsBySurface[runtimeSurfaceID, default: []].append(event)
     }
 
     func resizeSurface(runtimeSurfaceID: String, columns: Int, rows: Int) throws {

@@ -12,6 +12,45 @@ private enum ShellLayoutMetrics {
 }
 
 @MainActor
+final class WorkspaceRootView: NSView {
+    var titlebarHeightOverrideForTesting: CGFloat?
+    var titlebarDoubleClickHandler: ((NSWindow) -> Void)?
+
+    override var mouseDownCanMoveWindow: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        guard isInUnifiedTitlebar(event) else {
+            super.mouseDown(with: event)
+            return
+        }
+
+        guard let window else {
+            return
+        }
+
+        if event.clickCount >= 2 {
+            if let titlebarDoubleClickHandler {
+                titlebarDoubleClickHandler(window)
+            } else {
+                window.zoom(nil)
+            }
+            return
+        }
+
+        window.performDrag(with: event)
+    }
+
+    func isInUnifiedTitlebar(_ event: NSEvent) -> Bool {
+        let point = convert(event.locationInWindow, from: nil)
+        let titlebarHeight = titlebarHeightOverrideForTesting ?? safeAreaInsets.top
+        guard titlebarHeight > 0 else {
+            return false
+        }
+        return point.y >= bounds.maxY - titlebarHeight
+    }
+}
+
+@MainActor
 final class WorkspaceWindowController: NSWindowController {
     private let controller: WorkspaceController
     private let rootViewController: WorkspaceShellViewController
@@ -38,6 +77,7 @@ final class WorkspaceWindowController: NSWindowController {
         window.styleMask.insert(.fullSizeContentView)
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
+        window.isMovableByWindowBackground = true
         window.title = workspace.name
         window.contentViewController = rootViewController
         window.setContentSize(NSSize(width: 1220, height: 780))
@@ -101,7 +141,7 @@ final class WorkspaceShellViewController: NSViewController {
     }
 
     override func loadView() {
-        view = NSView()
+        view = WorkspaceRootView()
         view.translatesAutoresizingMaskIntoConstraints = true
         view.wantsLayer = true
 
@@ -468,7 +508,7 @@ final class WorkspaceShellViewController: NSViewController {
                     _ = self?.controller.focusPaneTab(paneID: paneID)
                 },
                 onCreatePaneTab: { [weak self] in
-                    _ = try self?.controller.createPaneTab()
+                    _ = try self?.controller.createPaneTab(in: paneStack.id)
                 },
                 onClosePaneTab: { [weak self] paneID in
                     _ = try self?.controller.closePaneTab(paneID: paneID)
@@ -884,7 +924,7 @@ final class WorkspaceCanvasView: NSView {
 }
 
 @MainActor
-private final class SplitLayoutView: NSView {
+final class SplitLayoutView: NSView {
     private struct DragState {
         let dividerIndex: Int
         let initialLocation: CGFloat
@@ -899,6 +939,7 @@ private final class SplitLayoutView: NSView {
     private var dragState: DragState?
 
     override var isFlipped: Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false }
 
     init(
         axis: PaneSplitAxis,
@@ -1313,6 +1354,7 @@ final class PaneHeaderView: NSView {
 
         let addButton = ChromePillButton()
         addButton.configure(symbolName: "plus", accessibilityLabel: "Add pane tab", active: false, theme: theme, compact: true)
+        addButton.identifier = NSUserInterfaceItemIdentifier("pane-tab-add-\(paneStack.id.rawValue)")
         addButton.onPress = {
             try? onCreatePaneTab()
         }
@@ -1388,6 +1430,7 @@ private class ChromePillButton: NSControl {
         self.title = title
         symbolName = nil
         accessibilityLabel = title
+        setAccessibilityLabel(title)
         imageView.isHidden = true
         titleLabel.isHidden = false
         titleLabel.stringValue = title
@@ -1404,6 +1447,7 @@ private class ChromePillButton: NSControl {
         title = nil
         self.symbolName = symbolName
         self.accessibilityLabel = accessibilityLabel
+        setAccessibilityLabel(accessibilityLabel)
         titleLabel.isHidden = true
         imageView.isHidden = false
         imageView.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: accessibilityLabel)
