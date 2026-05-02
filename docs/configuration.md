@@ -4,6 +4,8 @@ OpenMUX owns its user-facing configuration. Users edit **`~/.omux/config.toml`**
 
 OpenMUX then compiles that config into an internal Ghostty config file under **`~/.omux/generated/ghostty/`** and applies it through the terminal bridge. OpenMUX does **not** read `~/.config/ghostty/config` by default.
 
+New to OpenMUX? Start with [Getting started](./getting-started.md), then return here for the full configuration reference.
+
 ## Starter config
 
 ```toml

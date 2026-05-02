@@ -24,11 +24,17 @@
 <p align="center">
   <a href="https://openmux.fingergun.dev/">Website</a>
   ·
+  <a href="./docs/README.md">Docs</a>
+  ·
+  <a href="./docs/getting-started.md">Get Started</a>
+  ·
   <a href="./docs/manifest.md">Manifesto</a>
   ·
-  <a href="./docs/development.md">Development</a>
-  ·
   <a href="./docs/configuration.md">Configuration</a>
+  ·
+  <a href="./docs/hooks.md">Hooks</a>
+  ·
+  <a href="./docs/development.md">Development</a>
   ·
   <a href="./docs/releasing.md">Releases</a>
 </p>
@@ -56,6 +62,16 @@ OpenMUX is already a usable beta foundation with:
 - vendored Ghostty runtime hosting behind a narrow OpenMUX bridge, with a fallback terminal host path
 - explicit keyboard-correctness work for ISO layouts, Option behavior, dead keys, compose input, and IME-sensitive flows
 
+## Start using OpenMUX
+
+The user documentation starts at [docs/README.md](./docs/README.md), with a first-run guide in [docs/getting-started.md](./docs/getting-started.md).
+
+Useful user references:
+
+- [Getting started](./docs/getting-started.md) for install, first launch, the `omux` CLI, workspaces, panes, themes, and a first hook.
+- [Configuration and themes](./docs/configuration.md) for `~/.omux/config.toml`, theme selection, custom tokens, and terminal settings.
+- [Hooks](./docs/hooks.md) for executable user hooks in `~/.omux/hooks/`, invocation JSON, and automation examples.
+
 ## Workspace primitives
 
 OpenMUX is built around durable primitives instead of one blessed workflow:
@@ -74,16 +90,16 @@ The CLI talks to the running app over a local JSON-RPC Unix socket boundary.
 Current examples:
 
 ```bash
-swift run omux list
-swift run omux open ~/projects/omux
-swift run omux tab
-swift run omux split down
-swift run omux pane-tab
-swift run omux pane-tab-focus <pane-id>
-swift run omux pane-tab-close [pane-id]
-swift run omux run <session-id> "pwd"
-swift run omux notify "Build finished"
-swift run omux events
+omux list
+omux open ~/projects/omux
+omux tab
+omux split down
+omux pane-tab
+omux pane-tab-focus <pane-id>
+omux pane-tab-close [pane-id]
+omux run <session-id> "pwd"
+omux notify "Build finished"
+omux events
 ```
 
 `omux events` now streams both:
@@ -132,7 +148,7 @@ omux theme list
 omux theme nord
 ```
 
-## Quick start for development
+## Quick start for contributors
 
 OpenMUX uses Swift Package Manager with a vendored Ghostty runtime path.
 

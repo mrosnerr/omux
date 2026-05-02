@@ -2,6 +2,8 @@
 
 OpenMUX hooks are user-provided executable files that react to OpenMUX-native events. Hooks are external processes: OpenMUX does not embed Bash, TypeScript, Deno, Node, Lua, a browser runtime, or WebAssembly for this feature.
 
+New to OpenMUX? Start with [Getting started](./getting-started.md). This page is the full hook reference once you are ready to automate your workspace.
+
 The protocol is the platform:
 
 - hook handlers are executable files
