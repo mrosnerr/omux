@@ -79,6 +79,35 @@ struct OmuxThemeTests {
     }
 
     @Test
+    func symlinkedCLIResourceBundleLoadsFromAppContentsResources() throws {
+        let root = try temporaryHome()
+        defer { cleanup(root) }
+
+        let appURL = root.appendingPathComponent("OpenMUX.app", isDirectory: true)
+        let contentsURL = appURL.appendingPathComponent("Contents", isDirectory: true)
+        let resourcesURL = contentsURL.appendingPathComponent("Resources", isDirectory: true)
+        let executableURL = contentsURL.appendingPathComponent("MacOS/omux", isDirectory: false)
+        let symlinkURL = root
+            .appendingPathComponent(".local/bin", isDirectory: true)
+            .appendingPathComponent("omux", isDirectory: false)
+        let themeBundleURL = resourcesURL.appendingPathComponent("OpenMUX_OmuxTheme.bundle", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: themeBundleURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: executableURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: symlinkURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: executableURL)
+        try FileManager.default.createSymbolicLink(at: symlinkURL, withDestinationURL: executableURL)
+
+        let bundle = OmuxThemeRegistry.packagedResourceBundle(
+            mainBundleURL: symlinkURL.deletingLastPathComponent(),
+            mainResourceURL: symlinkURL.deletingLastPathComponent(),
+            mainExecutableURL: symlinkURL
+        )
+
+        #expect(bundle?.bundleURL == themeBundleURL)
+    }
+
+    @Test
     func rejectsThemeInheritance() throws {
         let home = try temporaryHome()
         defer { cleanup(home) }

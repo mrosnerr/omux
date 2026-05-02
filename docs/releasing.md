@@ -16,7 +16,7 @@ That command writes artifacts to `dist/release/`:
 - `omux-<version>-macos.tar.gz`
 - `checksums.txt`
 
-The app archive is produced from the existing unsigned app bundle flow in `Scripts/publish-unsigned.sh`. That flow ad-hoc signs the assembled app bundle so macOS sees a structurally valid bundle, but it does not use a Developer ID certificate or notarization. The CLI archive packages the release-built `omux` binary plus the repository license.
+The app archive is produced from the existing unsigned app bundle flow in `Scripts/publish-unsigned.sh`. That flow ad-hoc signs the assembled app bundle so macOS sees a structurally valid bundle, but it does not use a Developer ID certificate or notarization. The CLI archive packages the release-built `omux` binary, SwiftPM resource bundles needed by CLI commands such as `omux theme`, and the repository license.
 
 The app bundle also includes a bundled CLI binary at `OpenMUX.app/Contents/MacOS/omux`, so users who install only the app can:
 

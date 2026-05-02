@@ -161,9 +161,19 @@ public struct OmuxThemeRegistry {
         mainResourceURL: URL? = Bundle.main.resourceURL,
         mainExecutableURL: URL? = Bundle.main.executableURL
     ) -> Bundle? {
-        let executableContentsURL = mainExecutableURL?
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
+        let executableURLs = Self.executableResourceLookupURLs(from: mainExecutableURL)
+        let executableCandidates = executableURLs.flatMap { executableURL in
+            [
+                executableURL
+                    .deletingLastPathComponent()
+                    .appendingPathComponent(Self.bundledThemesBundleName, isDirectory: true),
+                executableURL
+                    .deletingLastPathComponent()
+                    .deletingLastPathComponent()
+                    .appendingPathComponent("Resources", isDirectory: true)
+                    .appendingPathComponent(Self.bundledThemesBundleName, isDirectory: true),
+            ]
+        }
 
         let candidates = [
             mainResourceURL?.appendingPathComponent(Self.bundledThemesBundleName, isDirectory: true),
@@ -171,11 +181,8 @@ public struct OmuxThemeRegistry {
                 .appendingPathComponent("Contents", isDirectory: true)
                 .appendingPathComponent("Resources", isDirectory: true)
                 .appendingPathComponent(Self.bundledThemesBundleName, isDirectory: true),
-            executableContentsURL?
-                .appendingPathComponent("Resources", isDirectory: true)
-                .appendingPathComponent(Self.bundledThemesBundleName, isDirectory: true),
             mainBundleURL.appendingPathComponent(Self.bundledThemesBundleName, isDirectory: true),
-        ].compactMap { $0 }
+        ].compactMap { $0 } + executableCandidates
 
         for url in candidates where fileManager.fileExists(atPath: url.path) {
             if let bundle = Bundle(path: url.path) {
@@ -184,6 +191,19 @@ public struct OmuxThemeRegistry {
         }
 
         return nil
+    }
+
+    private static func executableResourceLookupURLs(from executableURL: URL?) -> [URL] {
+        guard let executableURL else {
+            return []
+        }
+
+        let resolvedURL = executableURL.resolvingSymlinksInPath().standardizedFileURL
+        let standardizedURL = executableURL.standardizedFileURL
+        if resolvedURL == standardizedURL {
+            return [standardizedURL]
+        }
+        return [standardizedURL, resolvedURL]
     }
 
     public func loadBuiltInThemes() -> ([OmuxTheme], [OmuxConfigDiagnostic]) {
