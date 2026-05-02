@@ -16,6 +16,7 @@ class RuntimeTerminalHostView: NSView, RuntimeTerminalInteractionConfiguring {
     var preeditHandler: ((String?) -> Void)?
     var imeRectProvider: (() -> NSRect)?
     var translatedKeyEventProvider: ((NSEvent) -> NSEvent)?
+    var selectionProvider: (() -> RuntimeTerminalSelection?)?
     var copyHandler: (() -> Void)?
     var pasteHandler: (() -> Void)?
     var selectAllHandler: (() -> Void)?
@@ -27,6 +28,8 @@ class RuntimeTerminalHostView: NSView, RuntimeTerminalInteractionConfiguring {
 
     private(set) var markedText = NSMutableAttributedString()
     private var keyTextAccumulator: [String]?
+    private var interpretedTerminalEvent: NormalizedKeyEvent?
+    private var interpretedTerminalEventHandled = false
     private var trackingAreaRef: NSTrackingArea?
     private var pressedMouseButtons: Set<Int> = []
 
@@ -61,10 +64,12 @@ class RuntimeTerminalHostView: NSView, RuntimeTerminalInteractionConfiguring {
         if isFocusedPane == false, let paneID {
             onFocus?(paneID)
         }
+        handleMousePosition(event)
         _ = handleMouseButton(event, state: GHOSTTY_MOUSE_PRESS, buttonNumber: 0)
     }
 
     override func mouseUp(with event: NSEvent) {
+        handleMousePosition(event)
         _ = handleMouseButton(event, state: GHOSTTY_MOUSE_RELEASE, buttonNumber: 0)
     }
 
@@ -73,6 +78,7 @@ class RuntimeTerminalHostView: NSView, RuntimeTerminalInteractionConfiguring {
         if isFocusedPane == false, let paneID {
             onFocus?(paneID)
         }
+        handleMousePosition(event)
         let handled = handleMouseButton(event, state: GHOSTTY_MOUSE_PRESS, buttonNumber: 1)
         if handled == false {
             super.rightMouseDown(with: event)
@@ -80,6 +86,7 @@ class RuntimeTerminalHostView: NSView, RuntimeTerminalInteractionConfiguring {
     }
 
     override func rightMouseUp(with event: NSEvent) {
+        handleMousePosition(event)
         let handled = handleMouseButton(event, state: GHOSTTY_MOUSE_RELEASE, buttonNumber: 1)
         if handled == false {
             super.rightMouseUp(with: event)
@@ -91,26 +98,30 @@ class RuntimeTerminalHostView: NSView, RuntimeTerminalInteractionConfiguring {
         if isFocusedPane == false, let paneID {
             onFocus?(paneID)
         }
+        handleMousePosition(event)
         _ = handleMouseButton(event, state: GHOSTTY_MOUSE_PRESS, buttonNumber: Int(event.buttonNumber))
     }
 
     override func otherMouseUp(with event: NSEvent) {
+        handleMousePosition(event)
         _ = handleMouseButton(event, state: GHOSTTY_MOUSE_RELEASE, buttonNumber: Int(event.buttonNumber))
     }
 
     override func mouseEntered(with event: NSEvent) {
-        reconcilePressedMouseButtons(modifiers: KeyModifiers.appKitModifierFlags(event.modifierFlags))
-        mousePositionHandler?(convert(event.locationInWindow, from: nil), KeyModifiers.appKitModifierFlags(event.modifierFlags))
+        handleMousePosition(event)
     }
 
     override func mouseExited(with event: NSEvent) {
-        reconcilePressedMouseButtons(modifiers: KeyModifiers.appKitModifierFlags(event.modifierFlags))
-        mousePositionHandler?(nil, KeyModifiers.appKitModifierFlags(event.modifierFlags))
+        let modifiers = KeyModifiers.appKitModifierFlags(event.modifierFlags)
+        reconcilePressedMouseButtons(modifiers: modifiers)
+        guard pressedMouseButtons.isEmpty, pressedMouseButtonsProvider() == 0 else {
+            return
+        }
+        mousePositionHandler?(nil, modifiers)
     }
 
     override func mouseMoved(with event: NSEvent) {
-        reconcilePressedMouseButtons(modifiers: KeyModifiers.appKitModifierFlags(event.modifierFlags))
-        mousePositionHandler?(convert(event.locationInWindow, from: nil), KeyModifiers.appKitModifierFlags(event.modifierFlags))
+        handleMousePosition(event)
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -162,11 +173,6 @@ class RuntimeTerminalHostView: NSView, RuntimeTerminalInteractionConfiguring {
 
     override func keyDown(with event: NSEvent) {
         let normalizedEvent = normalizer.normalize(event)
-        if let navigationEvent = TerminalCommandArrowNavigation.controlEvent(for: normalizedEvent) {
-            normalizedKeyHandler?(navigationEvent)
-            return
-        }
-
         if normalizedEvent.route == .shortcut {
             super.keyDown(with: event)
             return
@@ -175,7 +181,13 @@ class RuntimeTerminalHostView: NSView, RuntimeTerminalInteractionConfiguring {
         let markedTextBefore = markedText.length > 0
         let translatedEvent = translatedKeyEventProvider?(event) ?? event
         keyTextAccumulator = []
-        defer { keyTextAccumulator = nil }
+        interpretedTerminalEvent = normalizedEvent.route == .terminal ? normalizedEvent : nil
+        interpretedTerminalEventHandled = false
+        defer {
+            keyTextAccumulator = nil
+            interpretedTerminalEvent = nil
+            interpretedTerminalEventHandled = false
+        }
 
         interpretKeyEvents([translatedEvent])
         syncPreedit(clearIfNeeded: markedTextBefore)
@@ -188,6 +200,10 @@ class RuntimeTerminalHostView: NSView, RuntimeTerminalInteractionConfiguring {
                     committedTextHandler?(text)
                 }
             }
+            return
+        }
+
+        if interpretedTerminalEventHandled {
             return
         }
 
@@ -219,7 +235,7 @@ class RuntimeTerminalHostView: NSView, RuntimeTerminalInteractionConfiguring {
     }
 
     func selectedRange() -> NSRange {
-        NSRange()
+        selectionProvider?().map(\.range) ?? NSRange()
     }
 
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
@@ -250,10 +266,15 @@ class RuntimeTerminalHostView: NSView, RuntimeTerminalInteractionConfiguring {
     }
 
     func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? {
-        guard range.length > 0, markedText.length > 0 else {
+        if range.length > 0, markedText.length > 0 {
+            return markedText
+        }
+
+        guard let selection = selectionProvider?(), selection.text.isEmpty == false else {
             return nil
         }
-        return markedText
+        actualRange?.pointee = selection.range
+        return NSAttributedString(string: selection.text)
     }
 
     func characterIndex(for point: NSPoint) -> Int {
@@ -287,6 +308,13 @@ class RuntimeTerminalHostView: NSView, RuntimeTerminalInteractionConfiguring {
     }
 
     override func doCommand(by selector: Selector) {
+        if let event = interpretedTerminalEvent, interpretedTerminalEventHandled == false {
+            normalizedKeyHandler?(event)
+            interpretedTerminalEventHandled = true
+            return
+        }
+
+        super.doCommand(by: selector)
     }
 
     @IBAction func copy(_ sender: Any?) {
@@ -355,6 +383,12 @@ class RuntimeTerminalHostView: NSView, RuntimeTerminalInteractionConfiguring {
         return mouseButtonHandler?(state, buttonNumber, KeyModifiers.appKitModifierFlags(event.modifierFlags)) ?? false
     }
 
+    private func handleMousePosition(_ event: NSEvent) {
+        let modifiers = KeyModifiers.appKitModifierFlags(event.modifierFlags)
+        reconcilePressedMouseButtons(modifiers: modifiers)
+        mousePositionHandler?(convert(event.locationInWindow, from: nil), modifiers)
+    }
+
     private func reconcilePressedMouseButtons(modifiers: KeyModifiers) {
         let actualPressedMask = pressedMouseButtonsProvider()
         let staleButtons = pressedMouseButtons.filter { button in
@@ -399,56 +433,5 @@ enum TerminalDroppedFileText {
             return "''"
         }
         return "'\(path.replacingOccurrences(of: "'", with: "'\\''"))'"
-    }
-}
-
-enum TerminalCommandArrowNavigation {
-    static func controlText(for event: NormalizedKeyEvent) -> String? {
-        guard event.phase == .keyDown,
-              event.modifiers.intersection([.leftCommand, .rightCommand]).isEmpty == false,
-              event.modifiers.intersection([.leftControl, .rightControl, .leftOption, .rightOption]).isEmpty
-        else {
-            return nil
-        }
-
-        switch event.keyCode {
-        case 123?:
-            return "\u{1}"
-        case 124?:
-            return "\u{5}"
-        default:
-            return nil
-        }
-    }
-
-    static func controlEvent(for event: NormalizedKeyEvent) -> NormalizedKeyEvent? {
-        guard let controlText = controlText(for: event) else {
-            return nil
-        }
-
-        switch controlText {
-        case "\u{1}":
-            return NormalizedKeyEvent(
-                keyCode: 0,
-                key: "a",
-                text: nil,
-                modifiers: [.leftControl],
-                phase: event.phase,
-                isRepeat: event.isRepeat,
-                route: .terminal
-            )
-        case "\u{5}":
-            return NormalizedKeyEvent(
-                keyCode: 14,
-                key: "e",
-                text: nil,
-                modifiers: [.leftControl],
-                phase: event.phase,
-                isRepeat: event.isRepeat,
-                route: .terminal
-            )
-        default:
-            return nil
-        }
     }
 }
