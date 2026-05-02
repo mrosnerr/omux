@@ -21,7 +21,7 @@ final class OmuxAppShellTests: XCTestCase {
 
     func testWorkspaceControllerCreatesTabsAndSplits() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -40,7 +40,7 @@ final class OmuxAppShellTests: XCTestCase {
 
     func testWorkspaceControllerCanSplitDown() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -52,7 +52,7 @@ final class OmuxAppShellTests: XCTestCase {
 
     func testWorkspaceControllerSupportsNestedSplitLayouts() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -88,7 +88,7 @@ final class OmuxAppShellTests: XCTestCase {
 
     @MainActor
     func testWorkspaceAutomationCanChainSplitFocusAndRunByReturnedIDs() throws {
-        let bridge = GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime())
+        let bridge = GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime())
         let controller = WorkspaceController(
             bridge: bridge,
             hookRunner: ExternalHookRunner()
@@ -118,7 +118,7 @@ final class OmuxAppShellTests: XCTestCase {
 
     func testWorkspaceControllerCreatesAndClosesPaneTabsInFocusedStack() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -141,7 +141,7 @@ final class OmuxAppShellTests: XCTestCase {
 
     func testWorkspaceControllerCreatesPaneTabInExplicitStack() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -187,7 +187,7 @@ final class OmuxAppShellTests: XCTestCase {
 
     func testWorkspaceControllerPublishesSharedActionEvents() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
         var publishedEvents: [ControlPlaneEvent] = []
@@ -230,7 +230,7 @@ final class OmuxAppShellTests: XCTestCase {
 
     func testWorkspaceControllerPublishesSparseNotificationAndRestoreEvents() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
         var publishedEvents: [ControlPlaneEvent] = []
@@ -256,7 +256,7 @@ final class OmuxAppShellTests: XCTestCase {
 
     func testWorkspaceControllerDoesNotPublishActionEventsForRejectedActions() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
         var publishedEvents: [ControlPlaneEvent] = []
@@ -276,7 +276,7 @@ final class OmuxAppShellTests: XCTestCase {
 
     func testWorkspaceControllerRemovesActivePaneByClosingSinglePaneTab() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -293,7 +293,7 @@ final class OmuxAppShellTests: XCTestCase {
 
     func testWorkspaceControllerRemovesActivePaneAndCollapsesSplit() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -311,7 +311,7 @@ final class OmuxAppShellTests: XCTestCase {
 
     func testWorkspaceControllerDeletesActiveWorkspaceWhenAnotherExists() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -327,7 +327,7 @@ final class OmuxAppShellTests: XCTestCase {
 
     func testWorkspaceControllerCreatesUniquelyNamedWorkspaces() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -340,7 +340,7 @@ final class OmuxAppShellTests: XCTestCase {
 
     func testWorkspaceControllerReusesLowestAvailableGeneratedWorkspaceName() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -355,7 +355,7 @@ final class OmuxAppShellTests: XCTestCase {
 
     func testWorkspaceControllerCanRenameWorkspace() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -368,7 +368,7 @@ final class OmuxAppShellTests: XCTestCase {
 
     func testWorkspaceControllerCanRemoveCustomWorkspaceName() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -408,7 +408,7 @@ final class OmuxAppShellTests: XCTestCase {
 
         let snapshot = try XCTUnwrap(controller.persistenceSnapshot())
         let restoredController = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -432,7 +432,7 @@ final class OmuxAppShellTests: XCTestCase {
 
     func testWorkspaceControllerSupportsOrderedWorkspaceSwitchingAndPreviousRecall() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -448,7 +448,7 @@ final class OmuxAppShellTests: XCTestCase {
 
     func testWorkspaceControllerMovesActiveWorkspaceUpAndDown() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -475,7 +475,7 @@ final class OmuxAppShellTests: XCTestCase {
 
     func testWorkspaceControllerDoesNotMoveActiveWorkspacePastBounds() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -493,7 +493,7 @@ final class OmuxAppShellTests: XCTestCase {
 
     func testWorkspaceControllerPersistsReorderedWorkspaceOrder() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -506,7 +506,7 @@ final class OmuxAppShellTests: XCTestCase {
 
         let snapshot = try XCTUnwrap(controller.persistenceSnapshot())
         let restoredController = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -517,7 +517,7 @@ final class OmuxAppShellTests: XCTestCase {
 
     func testWorkspaceControllerIgnoresMissingOrderedWorkspace() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -529,7 +529,7 @@ final class OmuxAppShellTests: XCTestCase {
 
     func testRunCommandTargetsLiveSession() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -540,7 +540,7 @@ final class OmuxAppShellTests: XCTestCase {
 
     @MainActor
     func testRunCommandPreservesSessionContinuity() throws {
-        let bridge = GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime())
+        let bridge = GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime())
         let controller = WorkspaceController(
             bridge: bridge,
             hookRunner: ExternalHookRunner()
@@ -568,7 +568,7 @@ final class OmuxAppShellTests: XCTestCase {
     @MainActor
     func testWorkspaceWindowHostsBridgeProvidedTerminalPaneView() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -582,7 +582,7 @@ final class OmuxAppShellTests: XCTestCase {
     @MainActor
     func testWorkspaceWindowUsesTerminalNativeShellChrome() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -598,7 +598,7 @@ final class OmuxAppShellTests: XCTestCase {
     @MainActor
     func testWorkspaceWindowMovesTabNavigationIntoSidebar() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -615,7 +615,7 @@ final class OmuxAppShellTests: XCTestCase {
     @MainActor
     func testWorkspaceWindowShowsVisibleSidebarNavigation() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -638,7 +638,7 @@ final class OmuxAppShellTests: XCTestCase {
     @MainActor
     func testWorkspaceRowContextMenuIncludesResetOnlyForCustomNames() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -690,7 +690,7 @@ final class OmuxAppShellTests: XCTestCase {
         )
         let prepared = OpenMUXConfigurationCoordinator.prepareInitialState(evaluator: evaluator)
         let coordinator = OpenMUXConfigurationCoordinator(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             initialState: prepared,
             evaluator: evaluator
         )
@@ -718,7 +718,7 @@ final class OmuxAppShellTests: XCTestCase {
     @MainActor
     func testWorkspaceWindowSidebarTracksMultipleWorkspaces() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -735,7 +735,7 @@ final class OmuxAppShellTests: XCTestCase {
     @MainActor
     func testWorkspaceWindowReflectsReorderedWorkspaceSidebarOrder() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -771,7 +771,7 @@ final class OmuxAppShellTests: XCTestCase {
     @MainActor
     func testWorkspaceWindowUsesUnifiedTitlebarConfiguration() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -826,7 +826,7 @@ final class OmuxAppShellTests: XCTestCase {
     @MainActor
     func testWorkspaceWindowRendersHorizontalSplitForSplitRight() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -851,7 +851,7 @@ final class OmuxAppShellTests: XCTestCase {
     @MainActor
     func testSplitDividerDoesNotOptIntoWindowBackgroundDragging() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -872,7 +872,7 @@ final class OmuxAppShellTests: XCTestCase {
     @MainActor
     func testWorkspaceWindowUsesDedicatedPaneHeaderChrome() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -946,7 +946,7 @@ final class OmuxAppShellTests: XCTestCase {
     @MainActor
     func testWorkspaceWindowDoesNotDuplicateFocusedPaneTitleAheadOfTabs() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -961,7 +961,7 @@ final class OmuxAppShellTests: XCTestCase {
     @MainActor
     func testWorkspaceWindowRestoresPersistedSidebarVisibility() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -1110,7 +1110,7 @@ final class OmuxAppShellTests: XCTestCase {
     @MainActor
     func testPaneTabAddButtonCreatesTabInClickedPaneStack() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -1143,7 +1143,7 @@ final class OmuxAppShellTests: XCTestCase {
     @MainActor
     func testPaneTabContextMenuExposesRenameAndCloseVariants() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -1167,7 +1167,7 @@ final class OmuxAppShellTests: XCTestCase {
     @MainActor
     func testSidebarTerminalRowContextMenuExposesRenameAndCloseVariants() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -1201,7 +1201,7 @@ final class OmuxAppShellTests: XCTestCase {
         try runGit(["-C", repositoryURL.path, "branch", "-M", "main"])
 
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -1225,7 +1225,7 @@ final class OmuxAppShellTests: XCTestCase {
         try runGit(["-C", repositoryURL.path, "branch", "-M", "main"])
 
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -1243,7 +1243,7 @@ final class OmuxAppShellTests: XCTestCase {
     @MainActor
     func testWorkspaceWindowKeepsSinglePaneFilledAcrossCanvas() throws {
         let controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner()
         )
 
@@ -1427,7 +1427,7 @@ final class OmuxAppShellTests: XCTestCase {
             _ = try controller.splitPane(target: .focused, axis: .rows)
         }
         controller = WorkspaceController(
-            bridge: GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime()),
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
             hookRunner: ExternalHookRunner(registry: registry, launcher: launcher)
         )
         controller.onChange = { workspace in
@@ -1440,6 +1440,64 @@ final class OmuxAppShellTests: XCTestCase {
         XCTAssertEqual(controller.activeWorkspace()?.focusedTab?.panes.count, 2)
         XCTAssertEqual(changedPaneCounts.first, 1)
         XCTAssertEqual(changedPaneCounts.last, 2)
+    }
+
+    @MainActor
+    func testControlPlaneWorkspaceMutationsRunOnMainThreadForHookDrivenRequests() throws {
+        let runtime = MainThreadRecordingGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let controller = WorkspaceController(
+            bridge: bridge,
+            hookRunner: ExternalHookRunner()
+        )
+        let configurationCoordinator = OpenMUXConfigurationCoordinator(
+            bridge: bridge,
+            initialState: OpenMUXPreparedConfiguration(
+                theme: .defaultTheme,
+                compiledConfigURL: nil,
+                compiledHash: nil,
+                diagnostics: []
+            )
+        )
+        let socketURL = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString)
+            .appending(path: "control.sock")
+        let service = OpenMUXControlPlaneService(
+            controller: controller,
+            configurationCoordinator: configurationCoordinator,
+            socketPath: socketURL.path(percentEncoded: false)
+        )
+        defer {
+            service.stop()
+            try? FileManager.default.removeItem(at: socketURL.deletingLastPathComponent())
+        }
+
+        try service.start()
+        _ = try controller.openWorkspace(at: "/tmp")
+
+        let requestFinished = expectation(description: "control-plane split request finished")
+        let responseBox = LockedBox<JSONRPCResponse?>(nil)
+        let errorBox = LockedBox<Error?>(nil)
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let client = OmuxControlClient(socketPath: socketURL.path(percentEncoded: false))
+                let response = try client.request(
+                    method: .splitPane,
+                    params: .object(["axis": .string(PaneSplitAxis.rows.rawValue)])
+                )
+                responseBox.value = response
+            } catch {
+                errorBox.value = error
+            }
+            requestFinished.fulfill()
+        }
+
+        wait(for: [requestFinished], timeout: 3)
+
+        XCTAssertNil(errorBox.value)
+        XCTAssertNil(responseBox.value?.error)
+        XCTAssertEqual(runtime.nonMainThreadOperations, [])
+        XCTAssertEqual(controller.activeWorkspace()?.focusedTab?.panes.count, 2)
     }
 
     @MainActor
@@ -1563,6 +1621,8 @@ final class OmuxAppShellTests: XCTestCase {
 
 private final class ActionEmittingGhosttyRuntime: GhosttyRuntime {
     private var sessions: [String: SessionDescriptor] = [:]
+    private var transcriptBySurface: [String: String] = [:]
+    private var inputBySurface: [String: String] = [:]
     private var terminalActionHandler: (@Sendable (RuntimeTerminalActionRecord) -> Bool)?
     var transcript = ""
 
@@ -1576,17 +1636,41 @@ private final class ActionEmittingGhosttyRuntime: GhosttyRuntime {
 
     func destroySurface(runtimeSurfaceID: String) throws {
         sessions.removeValue(forKey: runtimeSurfaceID)
+        transcriptBySurface.removeValue(forKey: runtimeSurfaceID)
+        inputBySurface.removeValue(forKey: runtimeSurfaceID)
     }
 
     @MainActor
     func makeHostedSurfaceView(for paneID: PaneID, runtimeSurfaceID: String) -> NSView? {
         _ = paneID
         _ = runtimeSurfaceID
-        return nil
+        return NSView()
     }
 
     func ownsSession(for runtimeSurfaceID: String) -> Bool {
         sessions[runtimeSurfaceID] != nil
+    }
+
+    func send(text: String, to runtimeSurfaceID: String) throws {
+        guard sessions[runtimeSurfaceID] != nil else {
+            throw TerminalBridgeError.runtimeAttachFailed(runtimeSurfaceID)
+        }
+
+        inputBySurface[runtimeSurfaceID, default: ""].append(text)
+    }
+
+    func handle(_ event: NormalizedKeyEvent, on runtimeSurfaceID: String) throws {
+        guard sessions[runtimeSurfaceID] != nil else {
+            throw TerminalBridgeError.runtimeAttachFailed(runtimeSurfaceID)
+        }
+
+        guard event.phase == .keyDown, event.keyCode == 36 else {
+            return
+        }
+
+        let command = inputBySurface[runtimeSurfaceID, default: ""]
+        inputBySurface[runtimeSurfaceID] = ""
+        execute(command: command, on: runtimeSurfaceID)
     }
 
     func setTerminalActionHandler(
@@ -1600,9 +1684,138 @@ private final class ActionEmittingGhosttyRuntime: GhosttyRuntime {
         sessionID: SessionID,
         descriptor: SessionDescriptor,
         runtimeSurfaceID: String,
-        fallbackSize: TerminalSize
+        defaultSize: TerminalSize
     ) -> TerminalSessionSnapshot? {
         guard sessions[runtimeSurfaceID] != nil else {
+            return nil
+        }
+
+        let surfaceTranscript = transcript + transcriptBySurface[runtimeSurfaceID, default: ""]
+        return TerminalSessionSnapshot(
+            paneID: paneID,
+            sessionID: sessionID,
+            runtimeSurfaceID: runtimeSurfaceID,
+            transcript: surfaceTranscript,
+            currentInput: inputBySurface[runtimeSurfaceID, default: ""],
+            shell: descriptor.shell,
+            workingDirectory: sessions[runtimeSurfaceID]?.workingDirectory ?? descriptor.workingDirectory,
+            columns: defaultSize.columns,
+            rows: defaultSize.rows
+        )
+    }
+
+    func emit(_ action: TerminalAction, on runtimeSurfaceID: String) {
+        _ = terminalActionHandler?(RuntimeTerminalActionRecord(runtimeSurfaceID: runtimeSurfaceID, action: action))
+    }
+
+    private func execute(command: String, on runtimeSurfaceID: String) {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty == false else {
+            return
+        }
+
+        if trimmed.hasPrefix("cd ") {
+            updateWorkingDirectory(String(trimmed.dropFirst(3)), on: runtimeSurfaceID)
+            return
+        }
+
+        if trimmed == "pwd" {
+            transcriptBySurface[runtimeSurfaceID, default: ""].append((sessions[runtimeSurfaceID]?.workingDirectory ?? "/tmp") + "\n")
+            return
+        }
+
+        let output = trimmed
+            .components(separatedBy: " && ")
+            .compactMap(printfOutput)
+            .joined()
+        transcriptBySurface[runtimeSurfaceID, default: ""].append(output)
+    }
+
+    private func updateWorkingDirectory(_ path: String, on runtimeSurfaceID: String) {
+        guard var session = sessions[runtimeSurfaceID] else {
+            return
+        }
+
+        let cleaned = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleaned.hasPrefix("/") {
+            session.workingDirectory = cleaned
+        } else {
+            session.workingDirectory = URL(fileURLWithPath: session.workingDirectory)
+                .appendingPathComponent(cleaned)
+                .standardizedFileURL
+                .path
+        }
+        sessions[runtimeSurfaceID] = session
+    }
+
+    private func printfOutput(from command: String) -> String? {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("printf '"), trimmed.hasSuffix("'") else {
+            return nil
+        }
+
+        let start = trimmed.index(trimmed.startIndex, offsetBy: "printf '".count)
+        let end = trimmed.index(before: trimmed.endIndex)
+        return String(trimmed[start..<end])
+            .replacingOccurrences(of: "\\n", with: "\n")
+            .replacingOccurrences(of: "\\'", with: "'")
+    }
+}
+
+private final class MainThreadRecordingGhosttyRuntime: GhosttyRuntime, @unchecked Sendable {
+    private let lock = NSLock()
+    private var sessions: [String: SessionDescriptor] = [:]
+    private var recordedNonMainThreadOperations: [String] = []
+
+    var nonMainThreadOperations: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedNonMainThreadOperations
+    }
+
+    func createSurface(for paneID: PaneID) throws -> String {
+        recordThread(operation: "createSurface")
+        return "main-thread:\(paneID.rawValue)"
+    }
+
+    func attach(session: SessionDescriptor, to runtimeSurfaceID: String) throws {
+        recordThread(operation: "attach")
+        lock.lock()
+        sessions[runtimeSurfaceID] = session
+        lock.unlock()
+    }
+
+    func destroySurface(runtimeSurfaceID: String) throws {
+        recordThread(operation: "destroySurface")
+        lock.lock()
+        sessions.removeValue(forKey: runtimeSurfaceID)
+        lock.unlock()
+    }
+
+    @MainActor
+    func makeHostedSurfaceView(for paneID: PaneID, runtimeSurfaceID: String) -> NSView? {
+        _ = paneID
+        _ = runtimeSurfaceID
+        return NSView()
+    }
+
+    func ownsSession(for runtimeSurfaceID: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return sessions[runtimeSurfaceID] != nil
+    }
+
+    func snapshot(
+        paneID: PaneID,
+        sessionID: SessionID,
+        descriptor: SessionDescriptor,
+        runtimeSurfaceID: String,
+        defaultSize: TerminalSize
+    ) -> TerminalSessionSnapshot? {
+        lock.lock()
+        let hasSession = sessions[runtimeSurfaceID] != nil
+        lock.unlock()
+        guard hasSession else {
             return nil
         }
 
@@ -1610,17 +1823,45 @@ private final class ActionEmittingGhosttyRuntime: GhosttyRuntime {
             paneID: paneID,
             sessionID: sessionID,
             runtimeSurfaceID: runtimeSurfaceID,
-            transcript: transcript,
+            transcript: "",
             currentInput: "",
             shell: descriptor.shell,
             workingDirectory: descriptor.workingDirectory,
-            columns: fallbackSize.columns,
-            rows: fallbackSize.rows
+            columns: defaultSize.columns,
+            rows: defaultSize.rows
         )
     }
 
-    func emit(_ action: TerminalAction, on runtimeSurfaceID: String) {
-        _ = terminalActionHandler?(RuntimeTerminalActionRecord(runtimeSurfaceID: runtimeSurfaceID, action: action))
+    private func recordThread(operation: String) {
+        guard Thread.isMainThread == false else {
+            return
+        }
+
+        lock.lock()
+        recordedNonMainThreadOperations.append(operation)
+        lock.unlock()
+    }
+}
+
+private final class LockedBox<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: Value
+
+    init(_ value: Value) {
+        storage = value
+    }
+
+    var value: Value {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return storage
+        }
+        set {
+            lock.lock()
+            storage = newValue
+            lock.unlock()
+        }
     }
 }
 

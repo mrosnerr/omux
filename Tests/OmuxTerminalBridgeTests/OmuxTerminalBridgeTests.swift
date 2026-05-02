@@ -1,11 +1,5 @@
 import AppKit
-#if canImport(CGhostty)
 import CGhostty
-#else
-typealias ghostty_input_mouse_state_e = Int32
-let GHOSTTY_MOUSE_PRESS: ghostty_input_mouse_state_e = 1
-let GHOSTTY_MOUSE_RELEASE: ghostty_input_mouse_state_e = 0
-#endif
 import OmuxConfig
 import OmuxTheme
 import Foundation
@@ -15,7 +9,8 @@ import XCTest
 
 final class OmuxTerminalBridgeTests: XCTestCase {
     func testBridgeOwnsSurfaceLifecycle() throws {
-        let bridge = GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime())
+        let runtime = InspectableGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
         let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
         let pane = Pane(title: "Main", session: session)
 
@@ -82,106 +77,18 @@ final class OmuxTerminalBridgeTests: XCTestCase {
     }
 
     @MainActor
-    func testHostedPaneViewRoutesKeyboardAndPasteToLiveSession() throws {
-        let bridge = GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime())
-        let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
-        let pane = Pane(title: "Main", session: session)
-
-        _ = try bridge.attach(session: session, to: pane)
-        let hostedView = bridge.makeHostedPaneView(for: pane, isFocused: true) { _ in }
-        let focusTarget = try XCTUnwrap(hostedView.focusTarget as? NSTextView)
-
-        let expectation = expectation(description: "hosted pane input reaches live session")
-        expectation.assertForOverFulfill = false
-        let token = bridge.addObserver(for: pane.id) { snapshot in
-            if snapshot.renderedText.contains("hosted\n") {
-                expectation.fulfill()
-            }
-        }
-
-        for (text, keyCode) in [("e", UInt16(14)), ("c", UInt16(8)), ("h", UInt16(4)), ("o", UInt16(31)), (" ", UInt16(49)), ("h", UInt16(4)), ("o", UInt16(31)), ("s", UInt16(1)), ("t", UInt16(17)), ("e", UInt16(14)), ("d", UInt16(2))] {
-            let event = try XCTUnwrap(
-                NSEvent.keyEvent(
-                    with: .keyDown,
-                    location: .zero,
-                    modifierFlags: [],
-                    timestamp: 0,
-                    windowNumber: 0,
-                    context: nil,
-                    characters: text,
-                    charactersIgnoringModifiers: text,
-                    isARepeat: false,
-                    keyCode: keyCode
-                )
-            )
-            focusTarget.keyDown(with: event)
-        }
-
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(" && printf '\\n'", forType: .string)
-        focusTarget.paste(nil)
-
-        let returnEvent = try XCTUnwrap(
-            NSEvent.keyEvent(
-                with: .keyDown,
-                location: .zero,
-                modifierFlags: [],
-                timestamp: 0,
-                windowNumber: 0,
-                context: nil,
-                characters: "\r",
-                charactersIgnoringModifiers: "\r",
-                isARepeat: false,
-                keyCode: 36
-            )
-        )
-        focusTarget.keyDown(with: returnEvent)
-
-        waitForExpectations(timeout: 3)
-        bridge.removeObserver(for: pane.id, token: token)
-    }
-
-    @MainActor
-    func testFallbackHostedViewKeepsStandardEditCommandsAvailable() throws {
-        let bridge = GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime())
-        let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
-        let pane = Pane(title: "Main", session: session)
-
-        _ = try bridge.attach(session: session, to: pane)
-        let hostedView = bridge.makeHostedPaneView(for: pane, isFocused: true) { _ in }
-        let focusTarget = try XCTUnwrap(hostedView.focusTarget as? NSTextView)
-
-        focusTarget.string = "copy me"
-        NSPasteboard.general.clearContents()
-        focusTarget.selectAll(nil)
-        XCTAssertEqual(focusTarget.selectedRange(), NSRange(location: 0, length: 7))
-        focusTarget.copy(nil)
-
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "copy me")
-    }
-
-    @MainActor
     func testDefaultBridgeUsesRuntimeHostedSurfaceWhenGhosttyKitExists() throws {
-        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
-            || NSClassFromString("XCTestCase") != nil
-        {
-            throw XCTSkip("Embedded Ghostty runtime is disabled under xctest.")
-        }
-
         let bridge = GhosttyTerminalBridge()
         let session = SessionDescriptor(shell: "/bin/zsh", workingDirectory: "/tmp")
         let pane = Pane(title: "Ghostty", session: session)
 
-        let attachment = try bridge.attach(session: session, to: pane)
+        let surface = try bridge.createSurface(for: pane)
         let hostedView = bridge.makeHostedPaneView(for: pane, isFocused: true) { _ in }
         hostedView.frame = NSRect(x: 0, y: 0, width: 800, height: 480)
         hostedView.layoutSubtreeIfNeeded()
 
-        let snapshot = try XCTUnwrap(bridge.snapshot(for: pane.id))
-        XCTAssertGreaterThan(snapshot.columns, 0)
-        XCTAssertGreaterThan(snapshot.rows, 0)
-
         let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let hasGhosttyKit = FileManager.default.fileExists(
@@ -191,13 +98,10 @@ final class OmuxTerminalBridgeTests: XCTestCase {
         )
 
         let runtimeContainer = try XCTUnwrap(hostedView.subviews.first)
-        let childTypeNames = runtimeContainer.subviews.map { String(describing: type(of: $0)) }
-        if hasGhosttyKit {
-            XCTAssertEqual(attachment.runtimeSurfaceID, "cghostty:\(pane.id.rawValue)")
-            XCTAssertTrue(childTypeNames.contains("GhosttyHostedSurfaceView"))
-        } else {
-            XCTAssertTrue(childTypeNames.contains("NSScrollView"))
-        }
+        XCTAssertTrue(hasGhosttyKit)
+        XCTAssertEqual(surface.runtimeSurfaceID, "cghostty:\(pane.id.rawValue)")
+        XCTAssertTrue(hostedView.focusTarget is RuntimeTerminalHostView)
+        XCTAssertTrue(runtimeContainer.subviews.contains { $0 === hostedView.focusTarget })
     }
 
     @MainActor
@@ -216,6 +120,30 @@ final class OmuxTerminalBridgeTests: XCTestCase {
         let runtimeContainer = try XCTUnwrap(hostedView.subviews.first)
         XCTAssertEqual(runtimeContainer.subviews.count, 1)
         XCTAssertTrue(runtimeContainer.subviews.first === runtimeView)
+    }
+
+    func testBridgeFailsWhenRuntimeAttachCannotRecover() throws {
+        let runtime = InspectableGhosttyRuntime()
+        runtime.attachFailuresRemaining = 3
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
+        let pane = Pane(title: "Runtime", session: session)
+
+        XCTAssertThrowsError(try bridge.attach(session: session, to: pane))
+        XCTAssertEqual(runtime.attachAttempts, 3)
+    }
+
+    func testBridgeRetriesTransientRuntimeAttachBeforeFailing() throws {
+        let runtime = InspectableGhosttyRuntime()
+        runtime.attachFailuresRemaining = 2
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
+        let pane = Pane(title: "Runtime", session: session)
+
+        _ = try bridge.attach(session: session, to: pane)
+
+        XCTAssertEqual(runtime.attachAttempts, 3)
+        XCTAssertEqual(bridge.snapshot(for: pane.id)?.transcript, "runtime session")
     }
 
     @MainActor
@@ -439,7 +367,7 @@ final class OmuxTerminalBridgeTests: XCTestCase {
         XCTAssertTrue(runtime.sentTexts.isEmpty)
     }
 
-    func testCommandArrowNavigationUsesControlTextForFallbackPty() {
+    func testCommandArrowNavigationUsesControlTextForRuntime() {
         let event = NormalizedKeyEvent(
             keyCode: 124,
             key: "",
@@ -498,7 +426,6 @@ final class OmuxTerminalBridgeTests: XCTestCase {
         XCTAssertEqual(runtime.mousePressures.first?.pressure, 0.75)
     }
 
-    #if canImport(CGhostty)
     @MainActor
     func testHostedRuntimeClipboardReadsStandardPasteboardText() {
         let pasteboard = NSPasteboard(name: NSPasteboard.Name(UUID().uuidString))
@@ -568,7 +495,6 @@ final class OmuxTerminalBridgeTests: XCTestCase {
 
         XCTAssertNil(selectionRead)
     }
-    #endif
 
     @MainActor
     func testRuntimeHostedViewPublishesPreeditAndCommitThroughTextInputClient() throws {
@@ -896,29 +822,9 @@ final class OmuxTerminalBridgeTests: XCTestCase {
         }
     }
 
-    @MainActor
-    func testTerminalSessionSnapshotsUpdateWhenCommandRuns() throws {
-        let bridge = GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime())
-        let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
-        let pane = Pane(title: "Main", session: session)
-
-        _ = try bridge.attach(session: session, to: pane)
-        try bridge.run(command: "printf 'hello from shell'", inPane: pane.id)
-
-        let expectation = expectation(description: "terminal output updates")
-        expectation.assertForOverFulfill = false
-        let token = bridge.addObserver(for: pane.id) { snapshot in
-            if snapshot.renderedText.contains("hello from shell") {
-                expectation.fulfill()
-            }
-        }
-
-        waitForExpectations(timeout: 3)
-        bridge.removeObserver(for: pane.id, token: token)
-    }
-
     func testTerminalPaneInputPreservesRightOptionAndCompositionPaths() throws {
-        let bridge = GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime())
+        let runtime = InspectableGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
         let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
         let pane = Pane(title: "Main", session: session)
 
@@ -976,35 +882,13 @@ final class OmuxTerminalBridgeTests: XCTestCase {
             inPane: pane.id
         )
 
-        let snapshot = try XCTUnwrap(bridge.snapshot(for: pane.id))
-        XCTAssertEqual(snapshot.currentInput, "")
-    }
-
-    @MainActor
-    func testRunCommandUsesPersistentInteractiveSession() throws {
-        let bridge = GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime())
-        let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
-        let pane = Pane(title: "Main", session: session)
-
-        _ = try bridge.attach(session: session, to: pane)
-
-        let expectation = expectation(description: "working directory persists across commands")
-        expectation.assertForOverFulfill = false
-        let token = bridge.addObserver(for: pane.id) { snapshot in
-            if snapshot.renderedText.contains("/\n") {
-                expectation.fulfill()
-            }
-        }
-
-        try bridge.run(command: "cd /", inPane: pane.id)
-        try bridge.run(command: "pwd", inPane: pane.id)
-
-        waitForExpectations(timeout: 3)
-        bridge.removeObserver(for: pane.id, token: token)
+        XCTAssertEqual(runtime.handledEvents.map(\.keyCode), [19, 33, 14, 36])
+        XCTAssertEqual(runtime.handledEvents.map(\.text), ["@", nil, "é", "\r"])
     }
 
     func testResizeUpdatesSnapshotDimensions() throws {
-        let bridge = GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime())
+        let runtime = InspectableGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
         let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
         let pane = Pane(title: "Main", session: session)
 
@@ -1036,135 +920,6 @@ final class OmuxTerminalBridgeTests: XCTestCase {
         XCTAssertEqual(receivedEvent.value?.action, .workingDirectoryChanged("/var/tmp"))
         XCTAssertEqual(receivedEvent.value?.payload.objectValue?["path"], .string("/var/tmp"))
         bridge.removeTerminalActionObserver(token: token)
-    }
-
-    @MainActor
-    func testFallbackRuntimeDoesNotEmitSyntheticTerminalActionEvents() throws {
-        let bridge = GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime())
-        let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
-        let pane = Pane(title: "Main", session: session)
-
-        _ = try bridge.attach(session: session, to: pane)
-        let expectation = expectation(description: "no terminal action event")
-        expectation.isInverted = true
-        let token = bridge.addTerminalActionObserver { _ in
-            expectation.fulfill()
-        }
-
-        try bridge.run(command: "printf 'hello'", inPane: pane.id)
-
-        waitForExpectations(timeout: 0.2)
-        bridge.removeTerminalActionObserver(token: token)
-    }
-
-    @MainActor
-    func testDirectInputAndDeleteEditTheLiveShellCommand() throws {
-        let bridge = GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime())
-        let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
-        let pane = Pane(title: "Main", session: session)
-
-        _ = try bridge.attach(session: session, to: pane)
-
-        let expectation = expectation(description: "edited command executes in live session")
-        expectation.assertForOverFulfill = false
-        let token = bridge.addObserver(for: pane.id) { snapshot in
-            if snapshot.renderedText.contains("hello\n") {
-                expectation.fulfill()
-            }
-        }
-
-        for text in ["e", "c", "h", "X"] {
-            try bridge.handle(
-                NormalizedKeyEvent(
-                    keyCode: nil,
-                    key: text,
-                    text: text,
-                    modifiers: [],
-                    phase: .keyDown,
-                    isRepeat: false,
-                    route: .terminal
-                ),
-                inPane: pane.id
-            )
-        }
-
-        try bridge.handle(
-            NormalizedKeyEvent(
-                keyCode: 51,
-                key: "\u{7F}",
-                text: nil,
-                modifiers: [],
-                phase: .keyDown,
-                isRepeat: false,
-                route: .terminal
-            ),
-            inPane: pane.id
-        )
-
-        for text in ["o", " hello"] {
-            try bridge.handle(
-                NormalizedKeyEvent(
-                    keyCode: nil,
-                    key: text,
-                    text: text,
-                    modifiers: [],
-                    phase: .keyDown,
-                    isRepeat: false,
-                    route: .terminal
-                ),
-                inPane: pane.id
-            )
-        }
-
-        try bridge.handle(
-            NormalizedKeyEvent(
-                keyCode: 36,
-                key: "\r",
-                text: "\r",
-                modifiers: [],
-                phase: .keyDown,
-                isRepeat: false,
-                route: .terminal
-            ),
-            inPane: pane.id
-        )
-
-        waitForExpectations(timeout: 3)
-        bridge.removeObserver(for: pane.id, token: token)
-    }
-
-    @MainActor
-    func testPasteStyleTextInjectionTargetsLiveSession() throws {
-        let bridge = GhosttyTerminalBridge(runtime: UnavailableGhosttyRuntime())
-        let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
-        let pane = Pane(title: "Main", session: session)
-
-        _ = try bridge.attach(session: session, to: pane)
-
-        let expectation = expectation(description: "paste text enters live session")
-        expectation.assertForOverFulfill = false
-        let token = bridge.addObserver(for: pane.id) { snapshot in
-            if snapshot.renderedText.contains("pasted\n") {
-                expectation.fulfill()
-            }
-        }
-
-        try bridge.send(text: "printf 'pasted' && printf '\\n'", toPane: pane.id)
-        try bridge.handle(
-            NormalizedKeyEvent(
-                keyCode: 36,
-                key: "\r",
-                text: "\r",
-                modifiers: [],
-                phase: .keyDown,
-                isRepeat: false,
-                route: .terminal
-            ),
-            inPane: pane.id
-        )
-
-        waitForExpectations(timeout: 3)
-        bridge.removeObserver(for: pane.id, token: token)
     }
 
     private func makeKeyEvent(
@@ -1208,8 +963,14 @@ final class OmuxTerminalBridgeTests: XCTestCase {
 }
 
 private final class InspectableGhosttyRuntime: GhosttyRuntime {
+    enum AttachFailure: Error {
+        case transient
+    }
+
     private var sessions: [String: SessionDescriptor] = [:]
     private var terminalActionHandler: (@Sendable (RuntimeTerminalActionRecord) -> Bool)?
+    var attachFailuresRemaining = 0
+    private(set) var attachAttempts = 0
     private(set) var visibleBackground: String?
     private(set) var visibleForeground: String?
     private(set) var visiblePalette: [Int: String] = [:]
@@ -1242,6 +1003,12 @@ private final class InspectableGhosttyRuntime: GhosttyRuntime {
     }
 
     func attach(session: SessionDescriptor, to runtimeSurfaceID: String) throws {
+        attachAttempts += 1
+        if attachFailuresRemaining > 0 {
+            attachFailuresRemaining -= 1
+            throw AttachFailure.transient
+        }
+
         sessions[runtimeSurfaceID] = session
     }
 
@@ -1335,7 +1102,7 @@ private final class InspectableGhosttyRuntime: GhosttyRuntime {
         sessionID: SessionID,
         descriptor: SessionDescriptor,
         runtimeSurfaceID: String,
-        fallbackSize: TerminalSize
+        defaultSize: TerminalSize
     ) -> TerminalSessionSnapshot? {
         guard sessions[runtimeSurfaceID] != nil else {
             return nil
@@ -1349,8 +1116,8 @@ private final class InspectableGhosttyRuntime: GhosttyRuntime {
             currentInput: "",
             shell: descriptor.shell,
             workingDirectory: descriptor.workingDirectory,
-            columns: fallbackSize.columns,
-            rows: fallbackSize.rows
+            columns: defaultSize.columns,
+            rows: defaultSize.rows
         )
     }
 

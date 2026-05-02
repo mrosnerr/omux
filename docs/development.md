@@ -45,7 +45,7 @@ The script expects:
 - Zig 0.15.2, with Homebrew `zig@0.15` preferred when available
 - Xcode's Metal Toolchain component installed for the macOS xcframework build
 
-When `GhosttyKit.xcframework` is present, hosted panes use runtime-owned native Ghostty surfaces by default. When it is absent or runtime attach fails, the bridge falls back to the internal PTY-backed text host so the shell can still render a working pane. Plain `swift build` / `swift test` must continue to work in that no-runtime configuration because CI validates both the vendored-runtime path and the fallback path separately.
+`GhosttyKit.xcframework` is required for normal builds, tests, development launches, and release packaging. Run `make setup` before `swift build`, `swift test`, or `make verify`; package resolution fails fast if the vendored runtime artifact is missing. Runtime attach failures are treated as errors instead of silently downgrading panes to a non-Ghostty host.
 
 ## Commands
 
@@ -132,7 +132,7 @@ The current pane-hosting split is:
 
 - `OmuxAppShell` owns workspace layout, pane-stack chrome, and focus state
 - `OmuxTerminalBridge` owns pane surfaces, attached sessions, resize propagation, hosted terminal pane views, and terminal palette application
-- the bridge chooses between a vendored Ghostty runtime-owned native surface host and its internal fallback host
+- the bridge hosts a vendored Ghostty runtime-owned native surface and fails fast if that runtime is unavailable
 
 This keeps the shell AppKit-first while preserving one narrow terminal-engine seam.
 
@@ -182,7 +182,6 @@ Key boundary rules:
 - Hook payloads now use `OmuxValue` instead of string-only metadata.
 - Control-plane event names are OpenMUX-native (`terminal.cwdChanged`, `workspace.opened`, `command.started`, and so on) and are defined without committing to a long-lived streaming transport.
 - Unsupported and app-shell ownership actions remain rejected by default.
-- The fallback runtime stays silent for terminal-action events unless it gains equivalent native signals later.
 
 ## User hook directories
 
@@ -192,16 +191,14 @@ The production app initializes `ExternalHookRunner` from `~/.omux/hooks/`. Each 
 
 The current shell is usable, but it is still intentionally narrow:
 
-- the runtime-backed path currently keeps transcript snapshots minimal, so the fallback host remains the richer text transcript source
-- the bridge-owned fallback host is still text-rendered when the vendored Ghostty runtime is unavailable or cannot attach
-- ANSI/control-sequence handling is lightweight and aimed at normal shell prompts, not full-screen TUIs
+- runtime-backed transcript snapshots are still minimal until the Ghostty bridge exposes richer capture
 - paste is supported in the pane UI, but richer clipboard workflows are still follow-on work
 - close-last-local-tab is intentionally rejected for now instead of collapsing a split region
 - pane-local tabs cannot yet be reordered, dragged between stacks, or restored from persisted layout state
 
 ## Guidance for future changes
 
-1. Keep terminal lifecycle, hosted pane views, PTY ownership, input encoding, and future libghostty wiring inside `OmuxTerminalBridge`.
+1. Keep terminal lifecycle, hosted pane views, runtime ownership, input encoding, and libghostty wiring inside `OmuxTerminalBridge`.
 2. Treat direct pane input as the primary interaction model; UI chrome should enhance it, not replace it.
 3. Keep pane-stack behavior in shared workspace actions so the AppKit shell, JSON-RPC, and `omux` stay aligned.
 4. Preserve international keyboard correctness whenever input handling changes.

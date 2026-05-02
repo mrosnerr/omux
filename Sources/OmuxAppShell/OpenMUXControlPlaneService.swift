@@ -136,6 +136,13 @@ final class OpenMUXControlPlaneService: @unchecked Sendable {
     }
 
     private func handle(request: JSONRPCRequest) throws -> JSONRPCResponse {
+        try mainActorSyncThrowing {
+            try handleOnMain(request: request)
+        }
+    }
+
+    @MainActor
+    private func handleOnMain(request: JSONRPCRequest) throws -> JSONRPCResponse {
         switch ControlMethod(rawValue: request.method) {
         case .openWorkspace:
             let path = request.params?.objectValue?["path"]?.stringValue ?? FileManager.default.currentDirectoryPath
@@ -273,10 +280,10 @@ final class OpenMUXControlPlaneService: @unchecked Sendable {
         case .configDoctor:
             return JSONRPCResponse(
                 id: request.id,
-                result: .array(mainActorSync { configurationCoordinator.diagnostics() }.map(\.rpcValue))
+                result: .array(configurationCoordinator.diagnostics().map(\.rpcValue))
             )
         case .configReload:
-            let result = mainActorSync { configurationCoordinator.reload() }
+            let result = configurationCoordinator.reload()
             return JSONRPCResponse(
                 id: request.id,
                 result: .object([
@@ -327,14 +334,17 @@ final class OpenMUXControlPlaneService: @unchecked Sendable {
     }
 }
 
-private func mainActorSync<T: Sendable>(_ body: @MainActor () -> T) -> T {
+private func mainActorSyncThrowing<T: Sendable>(_ body: @MainActor () throws -> T) throws -> T {
     if Thread.isMainThread {
-        return MainActor.assumeIsolated(body)
+        return try MainActor.assumeIsolated(body)
     }
 
-    return DispatchQueue.main.sync {
-        MainActor.assumeIsolated(body)
+    let result = DispatchQueue.main.sync {
+        Result {
+            try MainActor.assumeIsolated(body)
+        }
     }
+    return try result.get()
 }
 
 private extension RPCValue {

@@ -16,7 +16,7 @@ It is intentionally directional rather than date-driven.
 | ✅ Done | Interactive session model | Panes own persistent shell sessions and accept direct keyboard input, paste, resize, and command injection. |
 | ✅ Done | Ghostty bridge boundary | `libghostty` / `CGhostty` stays isolated inside `OmuxTerminalBridge`. |
 | ✅ Done | Vendored Ghostty runtime path | Ghostty is vendored, pinned, buildable locally, and runtime-hosted pane surfaces are wired through the bridge. |
-| ✅ Done | Runtime fallback path | When the vendored runtime is unavailable, OpenMUX still falls back to the internal PTY-backed host. |
+| ✅ Done | Required runtime path | OpenMUX requires the vendored Ghostty runtime and fails fast when it cannot be built or attached. |
 | ✅ Done | Native developer workflow | `make setup`, `make dev`, `make build`, `make test`, `make verify`, and `make smoke` provide a stable native workflow. |
 | ✅ Done | CI baseline and app smoke coverage | CI now runs normal build/test checks and a dedicated runtime-enabled launch smoke test. |
 | ✅ Done | Visual shell redesign | The shell now has a terminal-native sidebar, no persistent top bar, flatter pane chrome, unified titlebar styling, and a stronger workspace hierarchy without drifting into IDE-like enclosure. |
@@ -48,7 +48,7 @@ Today, OpenMUX is best understood as:
 
 1. a native AppKit-first macOS shell with a terminal-native sidebar, flattened pane chrome, unified titlebar styling, and keyboard-first workspace navigation
 2. a terminal workspace with tabs, splits, pane-local tab stacks, and built-in shell themes
-3. a narrow Ghostty-backed terminal bridge with a safe fallback path
+3. a narrow Ghostty-backed terminal bridge with fail-fast runtime attachment
 4. a local-first automation surface through `omux`, JSON-RPC, and hooks
 
 The next big shift is not basic shell appearance anymore, but making the themed workspace more durable and capable: deeper runtime fidelity, persistence, pane ergonomics, and richer automation.

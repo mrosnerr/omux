@@ -3,15 +3,8 @@ import Foundation
 import PackageDescription
 
 let ghosttyXCFrameworkPath = "Vendor/ghostty/macos/GhosttyKit.xcframework"
-let hasGhosttyXCFramework = FileManager.default.fileExists(atPath: ghosttyXCFrameworkPath)
-
-var terminalBridgeDependencies: [Target.Dependency] = ["OmuxCore", "OmuxConfig"]
-var terminalBridgeLinkerSettings: [LinkerSetting] = []
-if hasGhosttyXCFramework {
-    terminalBridgeDependencies.append("CGhostty")
-    terminalBridgeDependencies.append("GhosttyKit")
-    terminalBridgeLinkerSettings.append(.linkedLibrary("c++"))
-    terminalBridgeLinkerSettings.append(.linkedFramework("Carbon"))
+guard FileManager.default.fileExists(atPath: ghosttyXCFrameworkPath) else {
+    fatalError("Missing \(ghosttyXCFrameworkPath). Run `make setup` before building OpenMUX.")
 }
 
 var targets: [Target] = [
@@ -24,29 +17,25 @@ var targets: [Target] = [
             .process("Resources"),
         ]
     ),
+    .binaryTarget(
+        name: "GhosttyKit",
+        path: ghosttyXCFrameworkPath
+    ),
+    .target(
+        name: "CGhostty",
+        dependencies: ["GhosttyKit"],
+        path: "Sources/CGhostty"
+    )
 ]
-
-if hasGhosttyXCFramework {
-    targets.append(
-        .binaryTarget(
-            name: "GhosttyKit",
-            path: ghosttyXCFrameworkPath
-        )
-    )
-    targets.append(
-        .target(
-            name: "CGhostty",
-            dependencies: ["GhosttyKit"],
-            path: "Sources/CGhostty"
-        )
-    )
-}
 
 targets.append(
     .target(
         name: "OmuxTerminalBridge",
-        dependencies: terminalBridgeDependencies,
-        linkerSettings: terminalBridgeLinkerSettings
+        dependencies: ["OmuxCore", "OmuxConfig", "CGhostty", "GhosttyKit"],
+        linkerSettings: [
+            .linkedLibrary("c++"),
+            .linkedFramework("Carbon"),
+        ]
     )
 )
 targets.append(

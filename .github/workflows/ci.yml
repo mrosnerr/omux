@@ -7,20 +7,7 @@ on:
       - main
 
 jobs:
-  build-and-test:
-    runs-on: macos-15
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v5
-
-      - name: Build
-        run: swift build
-
-      - name: Test
-        run: swift test
-
-  runtime-smoke:
+  verify:
     runs-on: macos-15
 
     steps:
@@ -61,7 +48,7 @@ jobs:
       - name: Build vendored Ghostty runtime
         run: make setup
 
-      - name: Verify project with runtime enabled
+      - name: Verify project
         run: make verify
 
       - name: Launch app smoke test

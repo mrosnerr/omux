@@ -3,7 +3,6 @@ import Foundation
 import OmuxConfig
 import OmuxCore
 
-#if canImport(CGhostty)
 import CGhostty
 
 enum CGhosttyRuntimeError: Error {
@@ -829,7 +828,7 @@ public final class CGhosttyRuntime: @unchecked Sendable, GhosttyRuntime {
         sessionID: SessionID,
         descriptor: SessionDescriptor,
         runtimeSurfaceID: String,
-        fallbackSize: TerminalSize
+        defaultSize: TerminalSize
     ) -> TerminalSessionSnapshot? {
         guard let state = try? surfaceState(for: runtimeSurfaceID),
               let surface = state.surface
@@ -846,8 +845,8 @@ public final class CGhosttyRuntime: @unchecked Sendable, GhosttyRuntime {
             currentInput: "",
             shell: descriptor.shell,
             workingDirectory: descriptor.workingDirectory,
-            columns: size.columns > 0 ? Int(size.columns) : fallbackSize.columns,
-            rows: size.rows > 0 ? Int(size.rows) : fallbackSize.rows
+            columns: size.columns > 0 ? Int(size.columns) : defaultSize.columns,
+            rows: size.rows > 0 ? Int(size.rows) : defaultSize.rows
         )
     }
 
@@ -1365,4 +1364,3 @@ private func mainActorValue<T: Sendable>(_ body: @escaping @MainActor () -> T) -
         MainActor.assumeIsolated(body)
     }
 }
-#endif

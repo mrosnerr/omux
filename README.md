@@ -59,7 +59,7 @@ OpenMUX is already a usable beta foundation with:
 - a local `omux` CLI plus JSON-RPC control plane
 - external hooks and a mixed local event stream via `omux events`
 - token-based theme ownership with built-in themes and user overrides
-- vendored Ghostty runtime hosting behind a narrow OpenMUX bridge, with a fallback terminal host path
+- required vendored Ghostty runtime hosting behind a narrow OpenMUX bridge
 - explicit keyboard-correctness work for ISO layouts, Option behavior, dead keys, compose input, and IME-sensitive flows
 
 ## Start using OpenMUX
@@ -186,7 +186,7 @@ The foundations are now in place:
 
 1. Native app shell, workspace tabs, split panes, and pane-local tabs
 2. `omux` CLI, JSON-RPC control plane, hooks, and local events
-3. Vendored Ghostty runtime path with fallback terminal hosting
+3. Required vendored Ghostty runtime path
 4. Theme/config ownership in OpenMUX-native terms
 5. CI and first-pass release automation
 

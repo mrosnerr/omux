@@ -54,7 +54,7 @@ These are the actions where doing nothing is a real product gap. The shortlist b
 - `PROGRESS_REPORT` → OSC progress reports rendered in pane chrome (build status, test progress)
 - `COLOR_CHANGE` → OSC palette mutation honored for the lifetime of the session
 - `SHOW_CHILD_EXITED` → drives "session ended" pane state
-- `RENDERER_HEALTH` → diagnostics, drives fallback transitions
+- `RENDERER_HEALTH` → diagnostics for runtime health
 - `CELL_SIZE` → layout sizing
 - `RENDER`, `RENDER_INSPECTOR` → redraw signals
 
@@ -87,7 +87,7 @@ The actions with the largest payoff per unit of integration effort, given existi
 | `SET_TITLE` / `SET_TAB_TITLE` | Pane chrome reflecting the running command. |
 | `RING_BELL` | Trivial, expected. |
 | `PROGRESS_REPORT` | Modern terminals surface build / test progress in chrome. Differentiator. |
-| `SHOW_CHILD_EXITED` / `RENDERER_HEALTH` | Pane state and diagnostics, already needed for fallback path quality. |
+| `SHOW_CHILD_EXITED` / `RENDERER_HEALTH` | Pane state and diagnostics, needed for visible runtime health reporting. |
 
 ## Architectural notes for a future change
 
@@ -119,4 +119,4 @@ These belong with the change proposal, not with this note:
 - Should bucket-1 actions ever be translated into native OpenMUX actions, and on what trigger (config opt-in, default-off command palette)?
 - Search: honor Ghostty's search actions or build OpenMUX search?
 - Per-action user opt-in / opt-out via config?
-- How does action dispatch interact with the runtime fallback path when libghostty is unavailable?
+- How should action dispatch surface runtime health when libghostty reports renderer issues?
