@@ -2,6 +2,24 @@
 
 OpenMUX release notes are committed here before tagging a release. Use `Scripts/check-changes-since-release.sh` to inspect changes since the latest `v*` tag, then use `Scripts/prepare-release.sh <version>` with a reviewed changelog body to prepare the next release.
 
+## 0.3.0
+
+### Added
+
+- Added `omux history` for reading bounded terminal history from the active workspace, a specific pane, or all panes, with text and JSON output for scripts and hooks.
+- Added the `terminal.history` control-plane method with bounded line/byte limits and per-pane metadata, including workspace, tab, pane, session, working-directory, truncation, and availability details.
+- Added persisted pane scrollback snapshots so restored workspaces can retain recent terminal context without replaying commands.
+
+### Changed
+
+- Changed workspace restoration to preserve pane working directories when OpenMUX can recover them from terminal state.
+- Changed workspace persistence to keep backups of previous snapshots before overwriting or clearing stored workspace state.
+- Documented terminal history usage for development workflows and hooks, including guidance that history can contain sensitive terminal output.
+
+### Fixed
+
+- Fixed restored pane state so recent scrollback and working-directory context survive app relaunches more reliably.
+
 ## 0.2.0
 
 ### Added
