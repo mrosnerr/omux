@@ -3,9 +3,7 @@
 ## Purpose
 
 Define the AppKit-facing terminal input contract for runtime-backed and fallback terminal panes on macOS.
-
 ## Requirements
-
 ### Requirement: Runtime terminal view owns AppKit input
 Runtime-backed terminal panes SHALL use the visible runtime terminal view as the AppKit first responder and interaction adapter instead of a hidden text-view overlay.
 
@@ -130,16 +128,46 @@ Runtime-backed and fallback terminal panes SHALL accept dropped file URLs and pa
 - **THEN** OpenMUX quotes or escapes the path before inserting it as terminal input text
 
 ### Requirement: Command-arrow navigation reaches terminal input
-Focused terminal panes SHALL handle Command-Left and Command-Right as terminal line-boundary navigation while preserving other Command shortcuts as AppKit responder/menu commands.
+Focused runtime-backed terminal panes SHALL preserve Command-Left and Command-Right as terminal-owned key events unless an explicit OpenMUX command claims them. OpenMUX SHALL NOT synthesize Control-A or Control-E substitutes for runtime-backed panes when the original Command-arrow event can be represented to Ghostty.
 
-#### Scenario: Command-Left moves to beginning of terminal input
-- **WHEN** a terminal pane is focused and the user presses Command-Left
-- **THEN** OpenMUX sends beginning-of-line terminal input for that pane
+#### Scenario: Command-Left reaches Ghostty semantics
+- **WHEN** a runtime-backed terminal pane is focused and the user presses Command-Left
+- **THEN** OpenMUX SHALL forward the original key and modifier facts through the runtime input path instead of synthesizing Control-A
 
-#### Scenario: Command-Right moves to end of terminal input
-- **WHEN** a terminal pane is focused and the user presses Command-Right
-- **THEN** OpenMUX sends end-of-line terminal input for that pane
+#### Scenario: Command-Right reaches Ghostty semantics
+- **WHEN** a runtime-backed terminal pane is focused and the user presses Command-Right
+- **THEN** OpenMUX SHALL forward the original key and modifier facts through the runtime input path instead of synthesizing Control-E
 
-#### Scenario: Standard command shortcuts remain shortcuts
-- **WHEN** a terminal pane is focused and the user presses a standard shortcut such as Command-V
-- **THEN** OpenMUX routes the shortcut through the existing AppKit responder command path
+### Requirement: Runtime adapter is Ghostty-aligned
+Runtime-backed terminal panes SHALL align their AppKit input adapter behavior with Ghostty macOS terminal semantics while preserving OpenMUX ownership of shell focus, shortcut interception, and native menu entry points.
+
+#### Scenario: Terminal-owned modified key is forwarded
+- **WHEN** a focused runtime-backed terminal pane receives a modified key chord that is not an OpenMUX shortcut
+- **THEN** OpenMUX SHALL forward it to the Ghostty runtime input path with keycode, modifier, text, repeat, phase, and composition facts preserved where AppKit exposes them
+
+#### Scenario: Ghostty modifier translation informs text generation
+- **WHEN** Ghostty reports translated modifier state for an input event
+- **THEN** OpenMUX SHALL use that translated state only for AppKit text generation while preserving original modifier identity for runtime key dispatch
+
+### Requirement: AppKit text commands do not disappear
+Runtime-backed terminal panes SHALL avoid swallowing AppKit text-command selectors produced by `interpretKeyEvents` when the original input is terminal-owned.
+
+#### Scenario: Option Backspace is not swallowed
+- **WHEN** AppKit resolves `Option+Backspace` to a text-command selector in a focused runtime-backed terminal pane
+- **THEN** OpenMUX SHALL still deliver the corresponding original terminal key event to Ghostty unless an explicit OpenMUX command handled it
+
+#### Scenario: Command Backspace is not swallowed
+- **WHEN** AppKit resolves `Cmd+Backspace` to a text-command selector in a focused runtime-backed terminal pane
+- **THEN** OpenMUX SHALL still deliver the corresponding original terminal key event to Ghostty unless an explicit OpenMUX command handled it
+
+### Requirement: Ghostty-inspired behavior remains clean-room and shell-safe
+OpenMUX SHALL use Ghostty's macOS app as behavioral guidance for terminal input fidelity without copying implementation code or adopting Ghostty app-shell behavior.
+
+#### Scenario: Shell ownership remains OpenMUX-native
+- **WHEN** Ghostty has app-shell behaviors for windows, tabs, splits, config, updates, or app menus
+- **THEN** OpenMUX SHALL keep those behaviors rejected or translated through explicit OpenMUX-owned commands
+
+#### Scenario: Terminal fidelity behavior may be mirrored
+- **WHEN** Ghostty's macOS adapter demonstrates terminal-input behavior for IME, preedit, modifier translation, selection, or mouse input
+- **THEN** OpenMUX MAY mirror the behavior through its own bridge-owned implementation
+

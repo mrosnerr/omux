@@ -2,9 +2,7 @@
 
 ## Purpose
 TBD - created by archiving change ghostty-surface-integration. Update Purpose after archive.
-
 ## Requirements
-
 ### Requirement: Pane regions SHALL host bridge-owned libghostty surfaces
 The system SHALL host each active terminal pane region using a libghostty-backed surface created and owned by `OmuxTerminalBridge`, while keeping the containing workspace and pane-stack structure in OpenMUX-native shell code.
 
@@ -25,3 +23,15 @@ The system SHALL coordinate surface creation, session attachment, focus activati
 #### Scenario: Pane teardown removes its hosted surface
 - **WHEN** a pane is closed or replaced in the workspace layout
 - **THEN** the bridge coordinates teardown of the associated hosted terminal surface and attached session resources
+
+### Requirement: Hosted Ghostty surfaces SHALL provide bounded scrollback through the bridge
+Hosted Ghostty surfaces SHALL support bounded scrollback capture through `OmuxTerminalBridge` without transferring surface ownership or raw `libghostty` access to the app shell.
+
+#### Scenario: Surface text capture stays bridge-owned
+- **WHEN** OpenMUX captures scrollback for a Ghostty-hosted pane
+- **THEN** direct calls to Ghostty text APIs occur only inside the terminal bridge module
+
+#### Scenario: Surface lifecycle remains unchanged
+- **WHEN** scrollback is captured for persistence
+- **THEN** the hosted surface remains owned by the bridge and its live session lifecycle is not restarted or torn down for capture
+

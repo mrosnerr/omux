@@ -2,9 +2,7 @@
 
 ## Purpose
 TBD - created by archiving change macos-foundation. Update Purpose after archive.
-
 ## Requirements
-
 ### Requirement: Libghostty access is isolated behind one bridge
 The system SHALL isolate all direct libghostty integration behind a single OpenMUX bridge capability with a stable internal interface, including hosted terminal surface creation, event translation, resize handling, and teardown.
 
@@ -98,3 +96,59 @@ The terminal bridge SHALL continue to reject unsupported actions and Ghostty app
 #### Scenario: Bridge rejects app-target shell ownership request
 - **WHEN** the runtime emits an app-target Ghostty action for window, tab, split, fullscreen, config, or update behavior
 - **THEN** the bridge rejects that action and preserves OpenMUX ownership of shell behavior
+
+### Requirement: The bridge exposes runtime selection through OpenMUX-native values
+The terminal bridge SHALL expose runtime-owned terminal selection through OpenMUX-native data structures while keeping raw Ghostty selection and text types confined to `OmuxTerminalBridge`.
+
+#### Scenario: Runtime selection read succeeds
+- **WHEN** a hosted Ghostty surface has selected terminal text
+- **THEN** the bridge SHALL return an OpenMUX-native selection value containing selected text and range metadata usable by the host view
+
+#### Scenario: Runtime selection read is unavailable
+- **WHEN** a hosted surface has no selection or the runtime cannot provide selection data
+- **THEN** the bridge SHALL return no selection value without leaking Ghostty error details or raw Ghostty types
+
+#### Scenario: Selection API does not leak Ghostty types
+- **WHEN** app-shell code asks a terminal pane for selected text or range data
+- **THEN** it SHALL consume only OpenMUX-native bridge values and SHALL NOT import `CGhostty`
+
+### Requirement: The bridge SHALL expose bounded terminal text snapshots
+The terminal bridge SHALL expose bounded terminal text snapshots through OpenMUX-native abstractions and SHALL keep terminal-engine text extraction APIs confined to bridge-owned code.
+
+#### Scenario: App shell requests scrollback without Ghostty types
+- **WHEN** workspace persistence requests scrollback for a pane-backed terminal
+- **THEN** it receives an OpenMUX-native bounded text snapshot or an explicit unavailable result without importing `CGhostty` or using raw terminal-engine types
+
+#### Scenario: Snapshot failure is explicit
+- **WHEN** the terminal runtime cannot provide text for a pane
+- **THEN** the bridge returns an unavailable result instead of fabricating scrollback text
+
+### Requirement: The bridge exposes bounded terminal history snapshots
+The terminal bridge SHALL expose an OpenMUX-native operation for reading bounded text snapshots from live terminal sessions. The operation SHALL include scrollback history and active terminal text when the renderer can provide them. The operation SHALL support caller-supplied maximum byte and line limits and SHALL report whether the returned text was truncated.
+
+#### Scenario: Bridge captures bounded text
+- **WHEN** app-shell code requests a history snapshot for a live terminal session with byte and line limits
+- **THEN** the bridge returns text bounded by those limits and reports line count, byte count, and truncation status
+
+#### Scenario: Bridge reports unavailable history
+- **WHEN** the terminal surface is not live or the renderer cannot provide text
+- **THEN** the bridge returns an explicit unavailable result rather than throwing away the pane metadata at the control-plane layer
+
+### Requirement: Terminal history capture stays behind the bridge boundary
+Direct terminal-engine APIs used to capture history SHALL remain confined to `OmuxTerminalBridge` implementation code. App-shell, CLI, hook, and control-plane code SHALL consume only OpenMUX-native history snapshot types.
+
+#### Scenario: App shell consumes bridge abstraction
+- **WHEN** the app shell resolves a pane for a history request
+- **THEN** it obtains text through an OpenMUX bridge abstraction instead of importing or calling libghostty APIs directly
+
+#### Scenario: CLI does not depend on renderer internals
+- **WHEN** `omux history` prints captured terminal text
+- **THEN** it receives OpenMUX-native history fields through the control plane and has no dependency on Ghostty symbols
+
+### Requirement: History capture is distinct from terminal input
+The terminal bridge SHALL keep history capture separate from terminal input APIs. Captured history text SHALL NOT be routed through text-input, command-running, paste, or initial-input operations.
+
+#### Scenario: Captured history is not sent to shell
+- **WHEN** OpenMUX captures terminal history for a pane
+- **THEN** the bridge reads available terminal text without submitting that text to the pane's PTY or shell
+
