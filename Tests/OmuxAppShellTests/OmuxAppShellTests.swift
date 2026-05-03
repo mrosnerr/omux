@@ -163,6 +163,30 @@ final class OmuxAppShellTests: XCTestCase {
         XCTAssertNotEqual(updatedWorkspace.focusedPane?.id, originalPaneID)
     }
 
+    func testPaneCreationInheritsLatestKnownWorkingDirectory() throws {
+        let runtime = ActionEmittingGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let controller = WorkspaceController(
+            bridge: bridge,
+            hookRunner: ExternalHookRunner()
+        )
+
+        let workspace = try controller.openWorkspace(at: "/tmp/project")
+        let originalPane = try XCTUnwrap(workspace.focusedPane)
+        let originalSurfaceID = try XCTUnwrap(bridge.surface(for: originalPane.id)?.runtimeSurfaceID)
+        runtime.emit(.workingDirectoryChanged("/tmp/project/packages/api"), on: originalSurfaceID)
+
+        let splitWorkspace = try XCTUnwrap(controller.splitFocusedPane(axis: .columns))
+        let splitPane = try XCTUnwrap(splitWorkspace.focusedPane)
+        XCTAssertEqual(splitPane.session.workingDirectory, "/tmp/project/packages/api")
+
+        let splitSurfaceID = try XCTUnwrap(bridge.surface(for: splitPane.id)?.runtimeSurfaceID)
+        runtime.emit(.workingDirectoryChanged("/tmp/project/packages/web"), on: splitSurfaceID)
+        let paneTabWorkspace = try XCTUnwrap(controller.createPaneTab())
+
+        XCTAssertEqual(paneTabWorkspace.focusedPane?.session.workingDirectory, "/tmp/project/packages/web")
+    }
+
     func testNewPanesDoNotInheritTerminalReportedTitleFromFocusedPane() throws {
         let runtime = ActionEmittingGhosttyRuntime()
         let bridge = GhosttyTerminalBridge(runtime: runtime)
@@ -183,6 +207,71 @@ final class OmuxAppShellTests: XCTestCase {
 
         let paneTabWorkspace = try XCTUnwrap(controller.createPaneTab())
         XCTAssertEqual(paneTabWorkspace.focusedPane?.title, "omux")
+    }
+
+    func testTerminalHistoryResolvesActivePaneAndAllWorkspaceScopes() throws {
+        let runtime = ActionEmittingGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let controller = WorkspaceController(
+            bridge: bridge,
+            hookRunner: ExternalHookRunner()
+        )
+
+        let firstWorkspace = try controller.openWorkspace(at: "/tmp/omux")
+        let firstPane = try XCTUnwrap(firstWorkspace.focusedPane)
+        let firstSurfaceID = try XCTUnwrap(bridge.surface(for: firstPane.id)?.runtimeSurfaceID)
+        runtime.scrollbackBySurface[firstSurfaceID] = "omux-one\nomux-two"
+
+        let splitWorkspace = try XCTUnwrap(controller.splitFocusedPane(axis: .columns))
+        let splitPane = try XCTUnwrap(splitWorkspace.focusedPane)
+        let splitSurfaceID = try XCTUnwrap(bridge.surface(for: splitPane.id)?.runtimeSurfaceID)
+        runtime.scrollbackBySurface[splitSurfaceID] = "split-history"
+
+        let secondWorkspace = try controller.openWorkspace(at: "/tmp/dungeon")
+        let secondPane = try XCTUnwrap(secondWorkspace.focusedPane)
+        let secondSurfaceID = try XCTUnwrap(bridge.surface(for: secondPane.id)?.runtimeSurfaceID)
+        runtime.scrollbackBySurface[secondSurfaceID] = "dungeon-history"
+
+        let activeHistory = try XCTUnwrap(controller.terminalHistory(ControlPlaneHistoryRequest()))
+        XCTAssertEqual(activeHistory.items.map(\.workspaceID), [secondWorkspace.id])
+        XCTAssertEqual(activeHistory.items.map(\.paneID), [secondPane.id])
+        XCTAssertEqual(activeHistory.items.first?.text, "dungeon-history")
+
+        let paneHistory = try XCTUnwrap(controller.terminalHistory(ControlPlaneHistoryRequest(
+            scope: .pane(firstPane.id),
+            maxBytes: 1_000,
+            maxLines: 1
+        )))
+        XCTAssertEqual(paneHistory.items.map(\.paneID), [firstPane.id])
+        XCTAssertEqual(paneHistory.items.first?.text, "omux-two")
+        XCTAssertEqual(paneHistory.items.first?.lineCount, 1)
+        XCTAssertTrue(paneHistory.items.first?.truncated == true)
+
+        let allHistory = try XCTUnwrap(controller.terminalHistory(ControlPlaneHistoryRequest(scope: .all)))
+        XCTAssertEqual(Set(allHistory.items.map(\.paneID)), Set([firstPane.id, splitPane.id, secondPane.id]))
+        XCTAssertNil(controller.terminalHistory(ControlPlaneHistoryRequest(scope: .pane(PaneID(rawValue: "missing")))))
+    }
+
+    func testTerminalHistoryReportsUnavailableAndDoesNotMutatePersistenceOrInput() throws {
+        let runtime = ActionEmittingGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let controller = WorkspaceController(
+            bridge: bridge,
+            hookRunner: ExternalHookRunner()
+        )
+
+        let workspace = try controller.openWorkspace(at: "/tmp/empty")
+        let pane = try XCTUnwrap(workspace.focusedPane)
+
+        let history = try XCTUnwrap(controller.terminalHistory(ControlPlaneHistoryRequest(scope: .pane(pane.id))))
+        XCTAssertEqual(history.items.count, 1)
+        XCTAssertEqual(history.items.first?.text, "")
+        XCTAssertEqual(history.items.first?.unavailable, "history unavailable")
+        XCTAssertEqual(runtime.sentTextCount, 0)
+
+        let snapshot = try XCTUnwrap(controller.persistenceSnapshot())
+        let persistedPane = try XCTUnwrap(snapshot.workspaces.first?.tabs.first?.panes.first)
+        XCTAssertNil(persistedPane.terminalState.restoredScrollback)
     }
 
     func testWorkspaceControllerPublishesSharedActionEvents() throws {
@@ -428,6 +517,97 @@ final class OmuxAppShellTests: XCTestCase {
         XCTAssertEqual(restoredProportions[1], 0.3, accuracy: 0.0001)
         XCTAssertEqual(restoredActiveWorkspace.id, secondWorkspace.id)
         XCTAssertEqual(restoredController.activeWorkspace()?.id, secondWorkspace.id)
+    }
+
+    func testWorkspaceControllerPersistsDistinctPaneWorkingDirectoriesAcrossWorkspaces() throws {
+        let runtime = ActionEmittingGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let controller = WorkspaceController(
+            bridge: bridge,
+            hookRunner: ExternalHookRunner()
+        )
+
+        let omuxWorkspace = try controller.openWorkspace(at: "/Users/example/projects/omux")
+        let omuxPane = try XCTUnwrap(omuxWorkspace.focusedPane)
+        runtime.emit(
+            .workingDirectoryChanged("/Users/example/projects/omux/Sources"),
+            on: try XCTUnwrap(bridge.surface(for: omuxPane.id)?.runtimeSurfaceID)
+        )
+
+        let dungeonWorkspace = try controller.createWorkspace()
+        let dungeonPane = try XCTUnwrap(dungeonWorkspace.focusedPane)
+        runtime.emit(
+            .workingDirectoryChanged("/Users/example/projects/DungeonPlanner"),
+            on: try XCTUnwrap(bridge.surface(for: dungeonPane.id)?.runtimeSurfaceID)
+        )
+        let dungeonSplit = try XCTUnwrap(controller.splitFocusedPane(axis: .rows))
+        let dungeonSplitPane = try XCTUnwrap(dungeonSplit.focusedPane)
+        runtime.emit(
+            .workingDirectoryChanged("/Users/example/projects/DungeonPlanner/App"),
+            on: try XCTUnwrap(bridge.surface(for: dungeonSplitPane.id)?.runtimeSurfaceID)
+        )
+
+        let snapshot = try XCTUnwrap(controller.persistenceSnapshot())
+        let restoredController = WorkspaceController(
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
+            hookRunner: ExternalHookRunner()
+        )
+        _ = try XCTUnwrap(restoredController.restorePersistedState(snapshot))
+
+        let restoredDirectories = restoredController.allWorkspaces()
+            .flatMap(\.tabs)
+            .flatMap(\.panes)
+            .map(\.session.workingDirectory)
+
+        XCTAssertTrue(restoredDirectories.contains("/Users/example/projects/omux/Sources"))
+        XCTAssertTrue(restoredDirectories.contains("/Users/example/projects/DungeonPlanner"))
+        XCTAssertTrue(restoredDirectories.contains("/Users/example/projects/DungeonPlanner/App"))
+    }
+
+    func testWorkspacePersistenceStoresBoundedPaneScrollbackForHistoryCommand() throws {
+        let runtime = ActionEmittingGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let controller = WorkspaceController(
+            bridge: bridge,
+            hookRunner: ExternalHookRunner()
+        )
+
+        let workspace = try controller.openWorkspace(at: "/tmp/project")
+        let pane = try XCTUnwrap(workspace.focusedPane)
+        let surfaceID = try XCTUnwrap(bridge.surface(for: pane.id)?.runtimeSurfaceID)
+        runtime.scrollbackBySurface[surfaceID] = (1...500).map { "line-\($0)" }.joined(separator: "\n")
+
+        let snapshot = try XCTUnwrap(controller.persistenceSnapshot())
+        let persistedPane = try XCTUnwrap(snapshot.workspaces.first?.focusedPane)
+
+        XCTAssertEqual(persistedPane.terminalState.restoredScrollback?.text.split(separator: "\n").count, 400)
+        XCTAssertEqual(persistedPane.terminalState.restoredScrollback?.text.split(separator: "\n").first, "line-101")
+        XCTAssertEqual(persistedPane.terminalState.restoredScrollback?.text.split(separator: "\n").last, "line-500")
+        XCTAssertTrue(persistedPane.terminalState.restoredScrollback?.truncated == true)
+    }
+
+    func testWorkspaceRestoreKeepsSavedScrollbackForHistoryCommandWithoutRenderingIt() throws {
+        let scrollback = PaneScrollbackSnapshot(text: "previous output", truncated: false)
+        let session = SessionDescriptor(shell: "/bin/zsh", workingDirectory: "/tmp/project")
+        let pane = Pane(
+            title: "project",
+            session: session,
+            terminalState: PaneTerminalState(restoredScrollback: scrollback)
+        )
+        let tab = Tab(title: "Main", panes: [pane], focusedPaneID: pane.id)
+        let workspace = Workspace(generatedName: "Workspace 1", rootPath: "/tmp/project", tabs: [tab], focusedTabID: tab.id)
+        let controller = WorkspaceController(
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
+            hookRunner: ExternalHookRunner()
+        )
+
+        _ = try XCTUnwrap(controller.restorePersistedState(.init(workspaces: [workspace], activeWorkspaceID: workspace.id)))
+
+        XCTAssertEqual(controller.activeWorkspace()?.focusedPane?.terminalState.restoredScrollback, scrollback)
+        XCTAssertEqual(controller.activeWorkspace()?.focusedPane?.session.workingDirectory, "/tmp/project")
+
+        let history = try XCTUnwrap(controller.terminalHistory(ControlPlaneHistoryRequest(scope: .pane(pane.id))))
+        XCTAssertEqual(history.items.first?.text, "previous output")
     }
 
     func testWorkspaceControllerSupportsOrderedWorkspaceSwitchingAndPreviousRecall() throws {
@@ -1501,6 +1681,96 @@ final class OmuxAppShellTests: XCTestCase {
     }
 
     @MainActor
+    func testControlPlaneTerminalHistoryReturnsPaneMetadataAndInvalidPaneError() throws {
+        let runtime = ActionEmittingGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let controller = WorkspaceController(
+            bridge: bridge,
+            hookRunner: ExternalHookRunner()
+        )
+        let configurationCoordinator = OpenMUXConfigurationCoordinator(
+            bridge: bridge,
+            initialState: OpenMUXPreparedConfiguration(
+                theme: .defaultTheme,
+                compiledConfigURL: nil,
+                compiledHash: nil,
+                diagnostics: []
+            )
+        )
+        let socketURL = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString)
+            .appending(path: "h.sock")
+        let service = OpenMUXControlPlaneService(
+            controller: controller,
+            configurationCoordinator: configurationCoordinator,
+            socketPath: socketURL.path(percentEncoded: false)
+        )
+        defer {
+            service.stop()
+            try? FileManager.default.removeItem(at: socketURL.deletingLastPathComponent())
+        }
+
+        try service.start()
+        let workspace = try controller.openWorkspace(at: "/tmp/history")
+        let pane = try XCTUnwrap(workspace.focusedPane)
+        let surfaceID = try XCTUnwrap(bridge.surface(for: pane.id)?.runtimeSurfaceID)
+        runtime.scrollbackBySurface[surfaceID] = "one\ntwo\nthree"
+
+        let requestFinished = expectation(description: "history request finished")
+        let responseBox = LockedBox<JSONRPCResponse?>(nil)
+        let errorBox = LockedBox<Error?>(nil)
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let client = OmuxControlClient(socketPath: socketURL.path(percentEncoded: false))
+                responseBox.value = try client.request(
+                    method: .terminalHistory,
+                    params: .object([
+                        "paneID": .string(pane.id.rawValue),
+                        "maxLines": .integer(2),
+                        "maxBytes": .integer(1_000),
+                    ])
+                )
+            } catch {
+                errorBox.value = error
+            }
+            requestFinished.fulfill()
+        }
+
+        wait(for: [requestFinished], timeout: 3)
+
+        XCTAssertNil(errorBox.value)
+        XCTAssertNil(responseBox.value?.error)
+        guard case .object(let result)? = responseBox.value?.result,
+              case .array(let items)? = result["items"],
+              case .object(let item)? = items.first
+        else {
+            return XCTFail("expected history result")
+        }
+        XCTAssertEqual(item["workspaceID"], .string(workspace.id.rawValue))
+        XCTAssertEqual(item["paneID"], .string(pane.id.rawValue))
+        XCTAssertEqual(item["text"], .string("two\nthree"))
+        XCTAssertEqual(item["truncated"], .bool(true))
+
+        let invalidRequestFinished = expectation(description: "invalid history request finished")
+        let invalidResponseBox = LockedBox<JSONRPCResponse?>(nil)
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                invalidResponseBox.value = try OmuxControlClient(socketPath: socketURL.path(percentEncoded: false)).request(
+                    method: .terminalHistory,
+                    params: .object(["paneID": .string("missing")])
+                )
+            } catch {
+                errorBox.value = error
+            }
+            invalidRequestFinished.fulfill()
+        }
+        wait(for: [invalidRequestFinished], timeout: 3)
+
+        XCTAssertNil(errorBox.value)
+        XCTAssertEqual(invalidResponseBox.value?.error?.code, 404)
+    }
+
+    @MainActor
     private func findHostedTerminalPaneView(in view: NSView) -> HostedTerminalPaneView? {
         if let hosted = view as? HostedTerminalPaneView {
             return hosted
@@ -1624,7 +1894,9 @@ private final class ActionEmittingGhosttyRuntime: GhosttyRuntime {
     private var transcriptBySurface: [String: String] = [:]
     private var inputBySurface: [String: String] = [:]
     private var terminalActionHandler: (@Sendable (RuntimeTerminalActionRecord) -> Bool)?
+    var scrollbackBySurface: [String: String] = [:]
     var transcript = ""
+    var sentTextCount = 0
 
     func createSurface(for paneID: PaneID) throws -> String {
         "action:\(paneID.rawValue)"
@@ -1656,6 +1928,7 @@ private final class ActionEmittingGhosttyRuntime: GhosttyRuntime {
             throw TerminalBridgeError.runtimeAttachFailed(runtimeSurfaceID)
         }
 
+        sentTextCount += 1
         inputBySurface[runtimeSurfaceID, default: ""].append(text)
     }
 
@@ -1704,7 +1977,20 @@ private final class ActionEmittingGhosttyRuntime: GhosttyRuntime {
         )
     }
 
+    func scrollbackSnapshot(runtimeSurfaceID: String, maxBytes: Int, maxLines: Int) -> PaneScrollbackSnapshot? {
+        PaneScrollbackSnapshot.bounded(
+            text: scrollbackBySurface[runtimeSurfaceID] ?? "",
+            maxBytes: maxBytes,
+            maxLines: maxLines
+        )
+    }
+
     func emit(_ action: TerminalAction, on runtimeSurfaceID: String) {
+        if case .workingDirectoryChanged(let path) = action,
+           var session = sessions[runtimeSurfaceID] {
+            session.workingDirectory = path
+            sessions[runtimeSurfaceID] = session
+        }
         _ = terminalActionHandler?(RuntimeTerminalActionRecord(runtimeSurfaceID: runtimeSurfaceID, action: action))
     }
 
@@ -1746,6 +2032,7 @@ private final class ActionEmittingGhosttyRuntime: GhosttyRuntime {
                 .path
         }
         sessions[runtimeSurfaceID] = session
+        emit(.workingDirectoryChanged(session.workingDirectory), on: runtimeSurfaceID)
     }
 
     private func printfOutput(from command: String) -> String? {

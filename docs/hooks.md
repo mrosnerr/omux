@@ -150,6 +150,15 @@ omux sessions
 omux panes
 ```
 
+Hooks can explicitly fetch bounded pane history when they need more output context than the hook payload includes:
+
+```bash
+pane_id="$(printf '%s' "$payload" | jq -r '.paneID')"
+omux history --json "$pane_id"
+```
+
+`omux history` without a pane ID reads panes in the active workspace, `omux history <pane-id>` reads one pane/pane-tab, and `omux history all` reads every pane across workspaces and tabs. The command can include bounded per-pane history persisted with workspace state plus current live terminal text when available. The command is read-only: it does not send text to the terminal, mutate pane state, or render history into pane UI. History may contain secrets, so hooks should request it only when needed and avoid writing it to shared logs.
+
 Use `run` when you want OpenMUX to submit a command, and `send-text` when you only want to insert text:
 
 ```bash
