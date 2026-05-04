@@ -2,6 +2,26 @@
 
 OpenMUX release notes are committed here before tagging a release. Use `Scripts/check-changes-since-release.sh` to inspect changes since the latest `v*` tag, then use `Scripts/prepare-release.sh <version>` with a reviewed changelog body to prepare the next release.
 
+## 0.5.0
+
+### Added
+
+- Added `omux version` for checking the installed OpenMUX version offline.
+- Added `omux update` for installing newer GitHub Release app archives from the CLI, including release metadata lookup, SHA-256 checksum verification, temporary staging, app bundle validation, prompted OpenMUX closure, detached helper installation, rollback protection, and `/Applications` / `~/Applications` target handling without hidden privilege escalation.
+- Added passive app-side update checks and a workspace sidebar notice that shows when a newer version is available and points users to `omux update`.
+- Added `terminal.inputSent` events and the `terminal-input-sent` hook for explicit OpenMUX input actions such as `omux run` and `send-text`.
+- Added bounded command output context to command completion and command failure hooks when recent terminal output is available.
+- Added sidebar terminal-row selection for focusing pane-local tabs directly from the workspace column.
+- Added more built-in themes from selected iTerm2 Color Schemes presets, including Atom One, Ayu, Fairyfloss, Firewatch, GitHub, Gruvbox hard, Material, One Half, OneNord, Snazzy, Synthwave, Tomorrow Night Eighties, Vesper, and Wez variants.
+
+### Changed
+
+- Changed release packaging so app and CLI artifacts include version metadata used by `omux version` and the self-update flow.
+- Changed terminal action dispatch so supported runtime actions are surfaced as OpenMUX-native hooks and control-plane events instead of remaining internal bridge details.
+- Changed command completion handling so hooks can receive explicit command, cwd, exit, duration, and bounded output context without treating native typing as command telemetry.
+- Reorganized app menus around current workspace, pane, pane-tab, and sidebar actions.
+- Expanded user and maintainer documentation for updating, release artifacts, hooks, terminal events, themes, and current development commands.
+
 ## 0.4.0
 
 ### Added
