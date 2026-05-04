@@ -112,6 +112,10 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
             }
             refreshMenuValidation()
             try controlPlaneService.start()
+            let updateChecker = OpenMUXUpdateAvailabilityChecker(controller: workspaceController)
+            Task { @MainActor in
+                await updateChecker.checkIfDue()
+            }
         } catch {
             assertionFailure("Failed to launch OpenMUX foundation: \(error)")
         }
@@ -331,8 +335,8 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         editMenuItem.submenu = editMenu
         mainMenu.addItem(editMenuItem)
 
-        let viewMenuItem = NSMenuItem()
-        let viewMenu = NSMenu(title: "View")
+        let workspaceMenuItem = NSMenuItem()
+        let workspaceMenu = NSMenu(title: "Workspace")
 
         let newWorkspaceMenuItem = NSMenuItem(
             title: "New Workspace",
@@ -340,7 +344,7 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
             keyEquivalent: ""
         )
         newWorkspaceMenuItem.target = self
-        viewMenu.addItem(newWorkspaceMenuItem)
+        workspaceMenu.addItem(newWorkspaceMenuItem)
 
         let deleteWorkspaceMenuItem = NSMenuItem(
             title: "Delete Workspace",
@@ -348,7 +352,7 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
             keyEquivalent: ""
         )
         deleteWorkspaceMenuItem.target = self
-        viewMenu.addItem(deleteWorkspaceMenuItem)
+        workspaceMenu.addItem(deleteWorkspaceMenuItem)
 
         let renameWorkspaceMenuItem = NSMenuItem(
             title: "Rename Workspace…",
@@ -356,16 +360,8 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
             keyEquivalent: ""
         )
         renameWorkspaceMenuItem.target = self
-        viewMenu.addItem(renameWorkspaceMenuItem)
-        viewMenu.addItem(.separator())
-
-        let toggleSidebarMenuItem = NSMenuItem(
-            title: "Toggle Workspace Column",
-            action: #selector(toggleSidebarFromMenu(_:)),
-            keyEquivalent: ""
-        )
-        toggleSidebarMenuItem.target = self
-        viewMenu.addItem(toggleSidebarMenuItem)
+        workspaceMenu.addItem(renameWorkspaceMenuItem)
+        workspaceMenu.addItem(.separator())
 
         let previousWorkspaceMenuItem = NSMenuItem(
             title: "Previous Workspace",
@@ -373,7 +369,7 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
             keyEquivalent: ""
         )
         previousWorkspaceMenuItem.target = self
-        viewMenu.addItem(previousWorkspaceMenuItem)
+        workspaceMenu.addItem(previousWorkspaceMenuItem)
 
         let moveWorkspaceUpMenuItem = NSMenuItem(
             title: "Move Workspace Up",
@@ -381,7 +377,7 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
             keyEquivalent: ""
         )
         moveWorkspaceUpMenuItem.target = self
-        viewMenu.addItem(moveWorkspaceUpMenuItem)
+        workspaceMenu.addItem(moveWorkspaceUpMenuItem)
 
         let moveWorkspaceDownMenuItem = NSMenuItem(
             title: "Move Workspace Down",
@@ -389,7 +385,8 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
             keyEquivalent: ""
         )
         moveWorkspaceDownMenuItem.target = self
-        viewMenu.addItem(moveWorkspaceDownMenuItem)
+        workspaceMenu.addItem(moveWorkspaceDownMenuItem)
+        workspaceMenu.addItem(.separator())
 
         var workspaceJumpMenuItems: [NSMenuItem] = []
         for index in 0..<9 {
@@ -400,11 +397,15 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
             )
             item.target = self
             item.tag = index
-            viewMenu.addItem(item)
+            workspaceMenu.addItem(item)
             workspaceJumpMenuItems.append(item)
         }
 
-        viewMenu.addItem(.separator())
+        workspaceMenuItem.submenu = workspaceMenu
+        mainMenu.addItem(workspaceMenuItem)
+
+        let paneMenuItem = NSMenuItem()
+        let paneMenu = NSMenu(title: "Pane")
 
         let splitRightMenuItem = NSMenuItem(
             title: "Split Right",
@@ -412,7 +413,7 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
             keyEquivalent: ""
         )
         splitRightMenuItem.target = self
-        viewMenu.addItem(splitRightMenuItem)
+        paneMenu.addItem(splitRightMenuItem)
 
         let splitDownMenuItem = NSMenuItem(
             title: "Split Down",
@@ -420,7 +421,7 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
             keyEquivalent: ""
         )
         splitDownMenuItem.target = self
-        viewMenu.addItem(splitDownMenuItem)
+        paneMenu.addItem(splitDownMenuItem)
 
         let removePaneMenuItem = NSMenuItem(
             title: "Remove Active Pane",
@@ -428,7 +429,8 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
             keyEquivalent: ""
         )
         removePaneMenuItem.target = self
-        viewMenu.addItem(removePaneMenuItem)
+        paneMenu.addItem(removePaneMenuItem)
+        paneMenu.addItem(.separator())
 
         let createPaneTabMenuItem = NSMenuItem(
             title: "New Pane Tab",
@@ -436,7 +438,7 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
             keyEquivalent: ""
         )
         createPaneTabMenuItem.target = self
-        viewMenu.addItem(createPaneTabMenuItem)
+        paneMenu.addItem(createPaneTabMenuItem)
 
         let closePaneTabMenuItem = NSMenuItem(
             title: "Close Pane Tab",
@@ -444,7 +446,7 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
             keyEquivalent: ""
         )
         closePaneTabMenuItem.target = self
-        viewMenu.addItem(closePaneTabMenuItem)
+        paneMenu.addItem(closePaneTabMenuItem)
 
         let nextPaneTabMenuItem = NSMenuItem(
             title: "Next Pane Tab",
@@ -452,7 +454,7 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
             keyEquivalent: ""
         )
         nextPaneTabMenuItem.target = self
-        viewMenu.addItem(nextPaneTabMenuItem)
+        paneMenu.addItem(nextPaneTabMenuItem)
 
         let previousPaneTabMenuItem = NSMenuItem(
             title: "Previous Pane Tab",
@@ -460,7 +462,8 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
             keyEquivalent: ""
         )
         previousPaneTabMenuItem.target = self
-        viewMenu.addItem(previousPaneTabMenuItem)
+        paneMenu.addItem(previousPaneTabMenuItem)
+        paneMenu.addItem(.separator())
 
         let nextPaneMenuItem = NSMenuItem(
             title: "Next Pane",
@@ -468,7 +471,7 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
             keyEquivalent: ""
         )
         nextPaneMenuItem.target = self
-        viewMenu.addItem(nextPaneMenuItem)
+        paneMenu.addItem(nextPaneMenuItem)
 
         let previousPaneMenuItem = NSMenuItem(
             title: "Previous Pane",
@@ -476,7 +479,21 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
             keyEquivalent: ""
         )
         previousPaneMenuItem.target = self
-        viewMenu.addItem(previousPaneMenuItem)
+        paneMenu.addItem(previousPaneMenuItem)
+
+        paneMenuItem.submenu = paneMenu
+        mainMenu.addItem(paneMenuItem)
+
+        let viewMenuItem = NSMenuItem()
+        let viewMenu = NSMenu(title: "View")
+
+        let toggleSidebarMenuItem = NSMenuItem(
+            title: "Toggle Workspace Column",
+            action: #selector(toggleSidebarFromMenu(_:)),
+            keyEquivalent: ""
+        )
+        toggleSidebarMenuItem.target = self
+        viewMenu.addItem(toggleSidebarMenuItem)
 
         viewMenuItem.submenu = viewMenu
         mainMenu.addItem(viewMenuItem)
