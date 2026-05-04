@@ -2,6 +2,22 @@
 
 OpenMUX release notes are committed here before tagging a release. Use `Scripts/check-changes-since-release.sh` to inspect changes since the latest `v*` tag, then use `Scripts/prepare-release.sh <version>` with a reviewed changelog body to prepare the next release.
 
+## 0.4.0
+
+### Added
+
+- Added `workspace.default_root_path` so first launch, new app-created workspaces, and `omux open` without a path can start from a configured directory.
+- Added configurable OpenMUX keybindings through the `[keys]` table, including rebinding shortcuts and mapping a chord to `"none"` when a terminal application should receive it instead.
+- Added inline pane-tab controls in pane headers, including an add button and close affordances for multi-tab stacks.
+- Added CLI and control-plane coverage for closing workspaces, removing panes, cycling visible panes, and cycling pane-local tabs.
+
+### Changed
+
+- Changed the default shortcut ladder to make workspace, pane, and pane-tab actions more consistent: workspace creation/close use `Cmd+N` / `Cmd+Shift+N`, pane tabs use `Cmd+T` / `Cmd+W`, active panes use `Cmd+Shift+W`, and modified Backspace remains terminal-owned unless explicitly rebound.
+- Changed menu shortcuts to follow the active keybinding configuration after startup and `omux config reload`.
+- Changed config rendering so theme changes preserve the workspace and keybinding sections.
+- Documented the new workspace root, keybinding syntax, shortcut actions, and expanded CLI command set.
+
 ## 0.3.0
 
 ### Added
