@@ -92,33 +92,53 @@ Themes are flat TOML files with a closed token set. Those tokens drive both the 
 OpenMUX currently ships:
 
 - `monokai-soda`
+- `atom-one-dark`
+- `atom-one-light`
+- `ayu`
+- `ayu-light`
 - `ayu-mirage`
 - `carbonfox`
 - `catppuccin`
 - `catppuccin-frappe`
 - `catppuccin-macchiato`
+- `catppuccin-mocha`
 - `cobalt2`
 - `doom-one`
 - `dracula`
 - `duskfox`
 - `everforest-dark`
+- `fairyfloss`
+- `firewatch`
 - `flexoki-dark`
 - `github-dark`
 - `github-dark-dimmed`
+- `github-dark-high-contrast`
+- `github-light`
 - `gruvbox`
+- `gruvbox-dark-hard`
+- `gruvbox-light-hard`
 - `gruvbox-material-dark`
 - `horizon`
 - `kanagawa-wave`
+- `material-darker`
 - `material-ocean`
 - `monokai-pro`
 - `nightfox`
 - `nord`
 - `one-dark`
+- `one-half-dark`
+- `one-half-light`
+- `onenord`
 - `rose-pine`
+- `snazzy`
 - `solarized-dark`
 - `solarized-light`
+- `synthwave`
 - `tokyo-night-storm`
 - `tokyonight-moon`
+- `tomorrow-night-eighties`
+- `vesper`
+- `wez`
 
 The additional imported presets are generated from selected Ghostty-format themes in the [iTerm2 Color Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes) collection. Maintainers can refresh them with `make import-themes`, which uses `Scripts/theme-imports/iterm2-popular.txt` and the pinned ref in `Scripts/theme-imports/iterm2-colors-ref`.
 
