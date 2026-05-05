@@ -3,6 +3,19 @@
 OpenMUX release notes are committed here before tagging a release. Use `Scripts/check-changes-since-release.sh` to inspect changes since the latest `v*` tag, then use `Scripts/prepare-release.sh <version>` with a reviewed changelog body to prepare the next release.
 
 
+
+## 0.7.0
+
+### Added
+
+- Added fuzzy search to the interactive `omux theme` picker. Type to filter by theme id or display name, use Backspace to edit the filter, Enter to apply the highlighted theme, and Escape or Ctrl-C to cancel.
+- Added 10 visually distinct built-in themes: `banana-blueberry`, `borland`, `c64`, `grass`, `hot-dog-stand`, `laser`, `man-page`, `matrix`, `red-sands`, and `under-the-sea`.
+
+### Changed
+
+- Changed the interactive theme picker so `q` is treated as search input instead of a cancel shortcut; Escape and Ctrl-C remain the cancel controls.
+- Refreshed README and theme documentation to keep the root overview concise while linking to deeper configuration and theme details.
+
 ## 0.6.0
 
 ### Added
