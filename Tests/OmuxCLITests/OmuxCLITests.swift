@@ -123,6 +123,7 @@ final class OmuxCLITests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let appManager = FakeRunningAppManager()
         var manifestURL: URL?
+        var helperURL: URL?
 
         let updater = OmuxSelfUpdater(
             versionProvider: fixture.versionProvider,
@@ -135,7 +136,10 @@ final class OmuxCLITests: XCTestCase {
             download: { source, destination in
                 try FileManager.default.copyItem(at: source, to: destination)
             },
-            launchDetachedHelper: { _, manifest in manifestURL = manifest },
+            launchDetachedHelper: { helper, manifest in
+                helperURL = helper
+                manifestURL = manifest
+            },
             writeLine: { _ in },
             readInputLine: { nil }
         )
@@ -147,12 +151,16 @@ final class OmuxCLITests: XCTestCase {
         }
         XCTAssertEqual(version, "0.5.0")
         let manifestPath = try XCTUnwrap(manifestURL?.path)
+        let helperDirectoryURL = try XCTUnwrap(helperURL?.deletingLastPathComponent())
         let manifest = try JSONDecoder().decode(
             OmuxUpdateManifest.self,
             from: Data(contentsOf: URL(fileURLWithPath: manifestPath))
         )
         XCTAssertEqual(manifest.version, "0.5.0")
         XCTAssertEqual(manifest.targetAppPath, fixture.installedAppURL.path)
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: helperDirectoryURL.appendingPathComponent("OpenMUX_OmuxTheme.bundle", isDirectory: true).path
+        ))
     }
 
     private func makeUpdateFixture(
@@ -175,6 +183,10 @@ final class OmuxCLITests: XCTestCase {
         let releaseRoot = root.appendingPathComponent("release", isDirectory: true)
         let stagedAppURL = releaseRoot.appendingPathComponent("OpenMUX.app", isDirectory: true)
         try FileManager.default.createDirectory(at: executableURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: installedAppURL.appendingPathComponent("Contents/Resources/OpenMUX_OmuxTheme.bundle", isDirectory: true),
+            withIntermediateDirectories: true
+        )
         try FileManager.default.createDirectory(at: tempURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: stagedAppURL.appendingPathComponent("Contents/MacOS", isDirectory: true), withIntermediateDirectories: true)
         try "#!/bin/sh\n".write(to: executableURL, atomically: true, encoding: .utf8)

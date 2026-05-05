@@ -103,6 +103,8 @@ swift run OpenMUXApp
 
 `swift run omux theme` opens the interactive fuzzy-search arrow-key picker when stdin/stdout are attached to a TTY; tests and non-interactive runs keep the typed number/name fallback.
 
+For local cleanup while developing, run `Scripts/uninstall-local.sh --dry-run` to inspect what would be removed, then `make uninstall-local` to remove local app bundles, CLI links, `~/.omux`, OpenMUX Application Support state, preferences, caches, saved app state, and update staging leftovers.
+
 If you want one stable, native entrypoint for daily development, prefer the root `Makefile`: run `make setup` once to build the vendored Ghostty runtime, then use `make dev`, `make build`, `make test`, `make verify`, or `make smoke`. Use `make import-themes` when refreshing the selected imported iTerm2 Color Schemes presets from the pinned upstream ref.
 
 Release packaging reads the product version from the root `VERSION` file by default. Use `Scripts/check-changes-since-release.sh` to inspect release-impacting changes since the latest `v*` tag and `Scripts/prepare-release.sh <version>` with a reviewed changelog body to update `VERSION` and `CHANGELOG.md`.

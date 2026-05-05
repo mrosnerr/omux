@@ -377,13 +377,50 @@ final class OmuxSelfUpdater {
         guard let executablePath else {
             throw UpdateError.missingExecutablePath
         }
+        let executableURL = URL(fileURLWithPath: executablePath).standardizedFileURL
         let helperURL = stagingRoot.appendingPathComponent("omux-update-helper", isDirectory: false)
         if fileManager.fileExists(atPath: helperURL.path) {
             try fileManager.removeItem(at: helperURL)
         }
-        try fileManager.copyItem(at: URL(fileURLWithPath: executablePath), to: helperURL)
+        try fileManager.copyItem(at: executableURL, to: helperURL)
         try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: helperURL.path)
+        try copyResourceBundlesForHelper(fromExecutableAt: executableURL, to: stagingRoot)
         return helperURL
+    }
+
+    private func copyResourceBundlesForHelper(fromExecutableAt executableURL: URL, to stagingRoot: URL) throws {
+        let executableDirectoryURL = executableURL.deletingLastPathComponent()
+        var candidateDirectories = [executableDirectoryURL]
+        if executableDirectoryURL.lastPathComponent == "MacOS",
+           executableDirectoryURL.deletingLastPathComponent().lastPathComponent == "Contents" {
+            candidateDirectories.append(
+                executableDirectoryURL
+                    .deletingLastPathComponent()
+                    .appendingPathComponent("Resources", isDirectory: true)
+            )
+        }
+
+        var copiedBundleNames = Set<String>()
+        for directoryURL in candidateDirectories {
+            guard let bundleURLs = try? fileManager.contentsOfDirectory(
+                at: directoryURL,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            ) else {
+                continue
+            }
+
+            for bundleURL in bundleURLs where bundleURL.pathExtension == "bundle" {
+                guard copiedBundleNames.insert(bundleURL.lastPathComponent).inserted else {
+                    continue
+                }
+                let destinationURL = stagingRoot.appendingPathComponent(bundleURL.lastPathComponent, isDirectory: true)
+                if fileManager.fileExists(atPath: destinationURL.path) {
+                    try fileManager.removeItem(at: destinationURL)
+                }
+                try fileManager.copyItem(at: bundleURL, to: destinationURL)
+            }
+        }
     }
 
     private static func download(from url: URL, to destinationURL: URL) throws {
@@ -392,7 +429,8 @@ final class OmuxSelfUpdater {
     }
 
     private static func launchDetachedHelper(helperURL: URL, manifestURL: URL) throws {
-        let command = "nohup \(shellQuote(helperURL.path)) __update-helper \(shellQuote(manifestURL.path)) >/dev/null 2>&1 &"
+        let bootstrapLogURL = manifestURL.deletingLastPathComponent().appendingPathComponent("update.log", isDirectory: false)
+        let command = "nohup \(shellQuote(helperURL.path)) __update-helper \(shellQuote(manifestURL.path)) >>\(shellQuote(bootstrapLogURL.path)) 2>&1 &"
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", command]

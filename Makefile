@@ -1,4 +1,4 @@
-.PHONY: help setup build-ghostty build test verify smoke import-themes publish-unsigned package-release dev app cli-help
+.PHONY: help setup build-ghostty build test verify smoke import-themes publish-unsigned package-release uninstall-local dev app cli-help
 
 help:
 	@printf "OpenMUX development commands\n\n"
@@ -11,6 +11,7 @@ help:
 	@printf "  make import-themes Import selected iTerm2 Color Schemes into bundled themes\n"
 	@printf "  make publish-unsigned Build dist/OpenMUX.app (unsigned)\n"
 	@printf "  make package-release Build GitHub Release assets under dist/release/ using VERSION\n"
+	@printf "  make uninstall-local Remove local OpenMUX installs and user data (prompts first)\n"
 	@printf "  make dev           Launch OpenMUXApp\n"
 	@printf "  make app           Launch OpenMUXApp\n"
 	@printf "  make cli-help      Show omux CLI help\n"
@@ -39,6 +40,9 @@ publish-unsigned:
 
 package-release:
 	./Scripts/package-release.sh
+
+uninstall-local:
+	./Scripts/uninstall-local.sh
 
 dev:
 	GHOSTTY_RESOURCES_DIR="$(CURDIR)/Vendor/ghostty/zig-out/share/ghostty" swift run OpenMUXApp
