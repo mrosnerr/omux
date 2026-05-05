@@ -4,6 +4,17 @@ OpenMUX release notes are committed here before tagging a release. Use `Scripts/
 
 
 
+
+## 0.8.0
+
+### Fixed
+
+- Fixed successful `omux update` installs so temporary update staging directories are cleaned up after the helper finishes installing the new app bundle.
+
+### Changed
+
+- Updated development documentation with the local cleanup workflow and dry-run guidance.
+
 ## 0.7.0
 
 ### Added
