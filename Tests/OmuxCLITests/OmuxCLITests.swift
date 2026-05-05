@@ -1026,6 +1026,46 @@ final class OmuxCLITests: XCTestCase {
         XCTAssertEqual(output, ["Cancelled."])
     }
 
+    func testThemePickerSearchFiltersThemesByNameOrDisplayName() {
+        let themes = [
+            pickerTheme(name: "catppuccin", displayName: "Catppuccin"),
+            pickerTheme(name: "catppuccin-mocha", displayName: "Catppuccin Mocha"),
+            pickerTheme(name: "banana-blueberry", displayName: "Banana Blueberry"),
+            pickerTheme(name: "nord", displayName: "Nord"),
+            pickerTheme(name: "quantum", displayName: "Quantum"),
+        ]
+
+        XCTAssertEqual(
+            ThemePickerSearch.filteredThemes(themes, query: "cat").map(\.name),
+            ["catppuccin", "catppuccin-mocha"]
+        )
+        XCTAssertEqual(
+            ThemePickerSearch.filteredThemes(themes, query: "blue").map(\.name),
+            ["banana-blueberry"]
+        )
+        XCTAssertEqual(
+            ThemePickerSearch.filteredThemes(themes, query: "q").map(\.name),
+            ["quantum"]
+        )
+    }
+
+    func testThemePickerSearchSupportsFuzzyTerms() {
+        let themes = [
+            pickerTheme(name: "catppuccin-mocha", displayName: "Catppuccin Mocha"),
+            pickerTheme(name: "catppuccin-frappe", displayName: "Catppuccin Frappe"),
+            pickerTheme(name: "github-dark", displayName: "GitHub Dark"),
+        ]
+
+        XCTAssertEqual(
+            ThemePickerSearch.filteredThemes(themes, query: "ctm").map(\.name),
+            ["catppuccin-mocha"]
+        )
+        XCTAssertEqual(
+            ThemePickerSearch.filteredThemes(themes, query: "git drk").map(\.name),
+            ["github-dark"]
+        )
+    }
+
     func testInteractiveThemePickerViewportKeepsSelectedThemeVisible() {
         let viewport = ThemePickerViewport.make(itemCount: 28, selectedIndex: 17, terminalRows: 8)
 
@@ -1108,6 +1148,10 @@ final class OmuxCLITests: XCTestCase {
         XCTAssertEqual(command.run(arguments: ["omux", "install-cli", destinationURL.path]), 0)
         XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: destinationURL.path), executableURL.path)
         XCTAssertEqual(output, ["Installed omux at \(destinationURL.path) -> \(executableURL.path)"])
+    }
+
+    private func pickerTheme(name: String, displayName: String) -> OmuxTheme {
+        OmuxTheme(schema: 1, name: name, displayName: displayName, tokens: [:])
     }
 
     func testCLIInstallCommandPrefersInstalledAppCLIWhenLaunchedFromDevBuild() throws {

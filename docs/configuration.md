@@ -110,6 +110,9 @@ OpenMUX currently ships:
 - `ayu`
 - `ayu-light`
 - `ayu-mirage`
+- `banana-blueberry`
+- `borland`
+- `c64`
 - `carbonfox`
 - `catppuccin`
 - `catppuccin-frappe`
@@ -127,14 +130,19 @@ OpenMUX currently ships:
 - `github-dark-dimmed`
 - `github-dark-high-contrast`
 - `github-light`
+- `grass`
 - `gruvbox`
 - `gruvbox-dark-hard`
 - `gruvbox-light-hard`
 - `gruvbox-material-dark`
+- `hot-dog-stand`
 - `horizon`
 - `kanagawa-wave`
+- `laser`
+- `man-page`
 - `material-darker`
 - `material-ocean`
+- `matrix`
 - `monokai-pro`
 - `nightfox`
 - `nord`
@@ -142,6 +150,7 @@ OpenMUX currently ships:
 - `one-half-dark`
 - `one-half-light`
 - `onenord`
+- `red-sands`
 - `rose-pine`
 - `snazzy`
 - `solarized-dark`
@@ -150,6 +159,7 @@ OpenMUX currently ships:
 - `tokyo-night-storm`
 - `tokyonight-moon`
 - `tomorrow-night-eighties`
+- `under-the-sea`
 - `vesper`
 - `wez`
 
@@ -317,7 +327,7 @@ omux run --session <session-id> -- pwd
 omux send-text --pane <pane-id> -- "hello"
 ```
 
-When attached to an interactive terminal, `omux theme` opens a keyboard picker: use Up/Down to move, Enter to apply the highlighted theme, and `q` or Escape to cancel. In non-interactive contexts it keeps the scriptable prompt that accepts a typed theme number or name.
+When attached to an interactive terminal, `omux theme` opens a keyboard picker: type to fuzzy-filter by theme id or display name, use Up/Down to move, Enter to apply the highlighted theme, Backspace to edit the filter, and Escape to cancel. For example, typing `cat` narrows the list to the Catppuccin themes. In non-interactive contexts it keeps the scriptable prompt that accepts a typed theme number or name.
 
 ## Hooks
 

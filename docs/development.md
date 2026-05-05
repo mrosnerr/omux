@@ -101,7 +101,7 @@ swift run omux help
 swift run OpenMUXApp
 ```
 
-`swift run omux theme` opens the interactive arrow-key picker when stdin/stdout are attached to a TTY; tests and non-interactive runs keep the typed number/name fallback.
+`swift run omux theme` opens the interactive fuzzy-search arrow-key picker when stdin/stdout are attached to a TTY; tests and non-interactive runs keep the typed number/name fallback.
 
 If you want one stable, native entrypoint for daily development, prefer the root `Makefile`: run `make setup` once to build the vendored Ghostty runtime, then use `make dev`, `make build`, `make test`, `make verify`, or `make smoke`. Use `make import-themes` when refreshing the selected imported iTerm2 Color Schemes presets from the pinned upstream ref.
 

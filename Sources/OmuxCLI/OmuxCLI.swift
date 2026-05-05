@@ -1031,12 +1031,16 @@ struct ThemePickerViewport: Equatable {
     let endIndex: Int
     let visibleCount: Int
 
-    static func make(itemCount: Int, selectedIndex: Int, terminalRows: Int) -> ThemePickerViewport {
+    static func make(
+        itemCount: Int,
+        selectedIndex: Int,
+        terminalRows: Int,
+        reservedRows: Int = 2
+    ) -> ThemePickerViewport {
         guard itemCount > 0 else {
             return ThemePickerViewport(startIndex: 0, endIndex: 0, visibleCount: 0)
         }
 
-        let reservedRows = 2
         let visibleCount = min(itemCount, max(1, terminalRows - reservedRows))
         let clampedSelectedIndex = min(max(0, selectedIndex), itemCount - 1)
         let preferredStart = clampedSelectedIndex - (visibleCount / 2)
@@ -1048,6 +1052,40 @@ struct ThemePickerViewport: Equatable {
             endIndex: startIndex + visibleCount,
             visibleCount: visibleCount
         )
+    }
+}
+
+struct ThemePickerSearch {
+    static func filteredThemes(_ themes: [OmuxTheme], query: String) -> [OmuxTheme] {
+        let terms = query
+            .lowercased()
+            .split(whereSeparator: { $0.isWhitespace })
+            .map(String.init)
+        guard terms.isEmpty == false else {
+            return themes
+        }
+
+        return themes.filter { theme in
+            terms.allSatisfy { term in
+                matches(term: term, in: theme.name.lowercased())
+                    || matches(term: term, in: theme.displayName.lowercased())
+            }
+        }
+    }
+
+    private static func matches(term: String, in candidate: String) -> Bool {
+        if candidate.contains(term) {
+            return true
+        }
+
+        var remaining = term[...]
+        for character in candidate where remaining.first == character {
+            remaining.removeFirst()
+            if remaining.isEmpty {
+                return true
+            }
+        }
+        return remaining.isEmpty
     }
 }
 
@@ -1077,6 +1115,8 @@ private struct TerminalThemePicker {
         case down
         case enter
         case cancel
+        case backspace
+        case character(Character)
         case other
     }
 
@@ -1093,6 +1133,8 @@ private struct TerminalThemePicker {
         }
 
         var selectedIndex = themes.firstIndex(where: { $0.name == currentThemeName }) ?? 0
+        var query = ""
+        var filteredThemes = ThemePickerSearch.filteredThemes(themes, query: query)
         var renderedLineCount = 0
 
         return try withRawTerminalMode {
@@ -1103,34 +1145,76 @@ private struct TerminalThemePicker {
             }
 
             render(
-                themes: themes,
+                themes: filteredThemes,
+                totalThemeCount: themes.count,
                 selectedIndex: selectedIndex,
                 currentThemeName: currentThemeName,
+                searchQuery: query,
                 previousLineCount: &renderedLineCount
             )
 
             while true {
                 switch readKey() {
                 case .up:
-                    selectedIndex = selectedIndex == 0 ? themes.count - 1 : selectedIndex - 1
+                    guard filteredThemes.isEmpty == false else {
+                        continue
+                    }
+                    selectedIndex = selectedIndex == 0 ? filteredThemes.count - 1 : selectedIndex - 1
                     render(
-                        themes: themes,
+                        themes: filteredThemes,
+                        totalThemeCount: themes.count,
                         selectedIndex: selectedIndex,
                         currentThemeName: currentThemeName,
+                        searchQuery: query,
                         previousLineCount: &renderedLineCount
                     )
                 case .down:
-                    selectedIndex = selectedIndex == themes.count - 1 ? 0 : selectedIndex + 1
+                    guard filteredThemes.isEmpty == false else {
+                        continue
+                    }
+                    selectedIndex = selectedIndex == filteredThemes.count - 1 ? 0 : selectedIndex + 1
                     render(
-                        themes: themes,
+                        themes: filteredThemes,
+                        totalThemeCount: themes.count,
                         selectedIndex: selectedIndex,
                         currentThemeName: currentThemeName,
+                        searchQuery: query,
                         previousLineCount: &renderedLineCount
                     )
                 case .enter:
-                    return themes[selectedIndex]
+                    guard filteredThemes.isEmpty == false else {
+                        continue
+                    }
+                    return filteredThemes[selectedIndex]
                 case .cancel:
                     return nil
+                case .backspace:
+                    guard query.isEmpty == false else {
+                        continue
+                    }
+                    query.removeLast()
+                    filteredThemes = ThemePickerSearch.filteredThemes(themes, query: query)
+                    selectedIndex = min(selectedIndex, max(0, filteredThemes.count - 1))
+                    render(
+                        themes: filteredThemes,
+                        totalThemeCount: themes.count,
+                        selectedIndex: selectedIndex,
+                        currentThemeName: currentThemeName,
+                        searchQuery: query,
+                        previousLineCount: &renderedLineCount
+                    )
+                case .character(let character):
+                    query.append(character)
+                    filteredThemes = ThemePickerSearch.filteredThemes(themes, query: query)
+                    selectedIndex = 0
+                    render(
+                        themes: filteredThemes,
+                        totalThemeCount: themes.count,
+                        selectedIndex: selectedIndex,
+                        currentThemeName: currentThemeName,
+                        searchQuery: query,
+                        previousLineCount: &renderedLineCount
+                    )
                 case .other:
                     continue
                 }
@@ -1164,8 +1248,10 @@ private struct TerminalThemePicker {
 
     private func render(
         themes: [OmuxTheme],
+        totalThemeCount: Int,
         selectedIndex: Int,
         currentThemeName: String?,
+        searchQuery: String,
         previousLineCount: inout Int
     ) {
         clearRenderedLines(previousLineCount)
@@ -1173,17 +1259,29 @@ private struct TerminalThemePicker {
         let viewport = ThemePickerViewport.make(
             itemCount: themes.count,
             selectedIndex: selectedIndex,
-            terminalRows: terminalRowCount()
+            terminalRows: terminalRowCount(),
+            reservedRows: 3
         )
-        let selectedOrdinal = min(max(0, selectedIndex), themes.count - 1) + 1
-        var lines = ["Available themes \(selectedOrdinal)/\(themes.count) (Up/Down, Enter, q):"]
+        let selectedOrdinal = themes.isEmpty ? 0 : min(max(0, selectedIndex), themes.count - 1) + 1
+        let searchHint = searchQuery.isEmpty
+            ? "type to search, Up/Down, Enter, Esc"
+            : "type to search, Backspace, Enter, Esc"
+        let countLabel = themes.count == totalThemeCount
+            ? "\(selectedOrdinal)/\(themes.count)"
+            : "\(selectedOrdinal)/\(themes.count) of \(totalThemeCount)"
+        var lines = ["Available themes \(countLabel) (\(searchHint)):"]
+        lines.append("Search: \(searchQuery)")
 
-        for index in viewport.startIndex..<viewport.endIndex {
-            let theme = themes[index]
-            let currentMarker = theme.name == currentThemeName ? "*" : " "
-            let pointer = index == selectedIndex ? ">" : " "
-            let line = "\(pointer)\(currentMarker) \(theme.name) — \(theme.displayName)"
-            lines.append(index == selectedIndex ? "\u{1B}[7m\(line)\u{1B}[0m" : line)
+        if themes.isEmpty {
+            lines.append("  No matching themes")
+        } else {
+            for index in viewport.startIndex..<viewport.endIndex {
+                let theme = themes[index]
+                let currentMarker = theme.name == currentThemeName ? "*" : " "
+                let pointer = index == selectedIndex ? ">" : " "
+                let line = "\(pointer)\(currentMarker) \(theme.name) — \(theme.displayName)"
+                lines.append(index == selectedIndex ? "\u{1B}[7m\(line)\u{1B}[0m" : line)
+            }
         }
 
         if viewport.visibleCount < themes.count {
@@ -1227,6 +1325,8 @@ private struct TerminalThemePicker {
             return .cancel
         case 0x0A, 0x0D:
             return .enter
+        case 0x08, 0x7F:
+            return .backspace
         case 0x1B:
             guard let second = readByte(timeoutMicroseconds: 50_000) else {
                 return .cancel
@@ -1245,8 +1345,11 @@ private struct TerminalThemePicker {
             return .down
         case 0x6B:
             return .up
-        case 0x71, 0x51:
-            return .cancel
+        case 0x20...0x7E:
+            guard let scalar = UnicodeScalar(Int(byte)) else {
+                return .other
+            }
+            return .character(Character(scalar))
         default:
             return .other
         }

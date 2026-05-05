@@ -39,3 +39,13 @@ gruvbox-light-hard | Gruvbox Light Hard | Gruvbox Light Hard
 material-darker | Material Darker | Material Darker
 onenord | Onenord | Onenord
 synthwave | Synthwave | Synthwave
+banana-blueberry | Banana Blueberry | Banana Blueberry
+borland | Borland | Borland
+c64 | C64 | C64
+grass | Grass | Grass
+hot-dog-stand | Hot Dog Stand | Hot Dog Stand
+laser | Laser | Laser
+man-page | Man Page | Man Page
+matrix | Matrix | Matrix
+red-sands | Red Sands | Red Sands
+under-the-sea | Under The Sea | Under The Sea
