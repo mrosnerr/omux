@@ -2,6 +2,31 @@
 
 OpenMUX release notes are committed here before tagging a release. Use `Scripts/check-changes-since-release.sh` to inspect changes since the latest `v*` tag, then use `Scripts/prepare-release.sh <version>` with a reviewed changelog body to prepare the next release.
 
+
+## 0.6.0
+
+### Added
+
+- Added persisted visual scrollback restore for terminal panes. OpenMUX now saves bounded per-pane terminal history locally and replays safe scrollback before the fresh shell prompt appears after app restart.
+- Added `terminal.persist_scrollback`, `terminal.persist_scrollback_lines`, and `terminal.persist_scrollback_bytes` config settings. Persisted scrollback is enabled by default with a 4,000-line and 1 MiB per-pane cap.
+- Added `omux history clear` for clearing saved terminal history, with scopes for all panes, focused pane, pane/pane-tab, tab, workspace, and session.
+- Added the `terminal.history.clear` control-plane method for clearing persisted history through automation.
+
+### Changed
+
+- Changed workspace persistence to store larger scrollback payloads as separate Application Support files instead of embedding them in workspace JSON or UserDefaults.
+- Changed restored pane launch so saved terminal output is replayed through an OpenMUX-owned wrapper before the login shell starts, with terminal reset protection and alternate-screen safety filtering.
+- Changed `omux history` documentation to clarify persisted history, live terminal text, privacy considerations, and cleanup behavior.
+- Changed app startup update checks so users can disable automatic checks with `auto_check_update = false`.
+
+### Fixed
+
+- Fixed update availability caching so OpenMUX rechecks after the installed app version changes, instead of suppressing a newer release notice because of a previous cache entry.
+- Fixed update checks so they run in the background and do not block app startup.
+- Fixed CLI install menu status so the app can distinguish missing, installed, stale, and externally managed `omux` CLI links.
+- Fixed persisted scrollback cleanup so repeated prompt/login tail noise is deduplicated and stale trailing prompt-only lines are not restored as useful history.
+- Fixed `omux history clear` so running panes clear their live screen/scrollback when available, including a local clear fallback for the pane that invoked the command.
+
 ## 0.5.0
 
 ### Added
