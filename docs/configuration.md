@@ -31,8 +31,8 @@ default_root_path = "~"
 "cmd+n" = "workspace.create"
 "cmd+shift+n" = "workspace.close"
 "cmd+0" = "workspace.previous"
-"cmd+ctrl+up" = "workspace.move-up"
-"cmd+ctrl+down" = "workspace.move-down"
+"cmd+ctrl+shift+up" = "workspace.move-up"
+"cmd+ctrl+shift+down" = "workspace.move-down"
 "cmd+1" = "workspace.focus-1"
 "cmd+2" = "workspace.focus-2"
 "cmd+3" = "workspace.focus-3"
@@ -47,6 +47,11 @@ default_root_path = "~"
 "cmd+shift+d" = "pane.split-down"
 "cmd+shift+w" = "pane.remove"
 "ctrl+shift+tab" = "pane.next"
+"cmd+ctrl+=" = "pane.resize-equalize"
+"cmd+ctrl+up" = "pane.resize-up"
+"cmd+ctrl+down" = "pane.resize-down"
+"cmd+ctrl+left" = "pane.resize-left"
+"cmd+ctrl+right" = "pane.resize-right"
 "cmd+t" = "pane-tab.create"
 "cmd+w" = "pane-tab.close"
 "ctrl+tab" = "pane-tab.next"
@@ -263,7 +268,7 @@ Example:
 Chord syntax:
 
 - Modifiers: `cmd`, `ctrl`, and `shift`.
-- Keys: letters, digits, `tab`, `backspace`, `up`, and `down`.
+- Keys: letters, digits, `tab`, `backspace`, `up`, `down`, `left`, `right`, and `=`.
 - Chords are case-insensitive and serialized in normalized form such as `cmd+shift+w`.
 - Option/Alt chords are rejected because Option and right-Option are commonly needed for international text input.
 
@@ -283,6 +288,11 @@ Supported action identifiers:
 | `pane.remove` | Remove the active pane. |
 | `pane.next` | Focus the next visible pane. |
 | `pane.previous` | Focus the previous visible pane. |
+| `pane.resize-equalize` | Equalize split sizes in the active tab. |
+| `pane.resize-up` | Move the active split divider up. |
+| `pane.resize-down` | Move the active split divider down. |
+| `pane.resize-left` | Move the active split divider left. |
+| `pane.resize-right` | Move the active split divider right. |
 | `pane-tab.create` | Create a pane-local tab. |
 | `pane-tab.close` | Close the active pane-local tab. |
 | `pane-tab.next` | Focus the next pane-local tab. |

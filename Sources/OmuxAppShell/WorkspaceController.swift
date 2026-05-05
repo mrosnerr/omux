@@ -541,6 +541,18 @@ public final class WorkspaceController: @unchecked Sendable {
         }.map { $0 > 1 } ?? false
     }
 
+    public func canEqualizeSplits() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return activeWorkspaceIndex.map { workspaces[$0].hasFocusedTabSplits } ?? false
+    }
+
+    public func canResizeSplit(_ direction: PaneSplitResizeDirection) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return activeWorkspaceIndex.map { workspaces[$0].canResizeFocusedSplit(direction) } ?? false
+    }
+
     public var terminalBridge: GhosttyTerminalBridge {
         bridge
     }
@@ -1167,6 +1179,40 @@ public final class WorkspaceController: @unchecked Sendable {
         lock.lock()
         if let index = activeWorkspaceIndex,
            workspaces[index].updateSplitProportions(proportions, forChildPaneIDs: childPaneIDs) {
+            updatedWorkspace = workspaces[index]
+        }
+        lock.unlock()
+
+        if let updatedWorkspace {
+            onChange?(updatedWorkspace)
+        }
+
+        return updatedWorkspace
+    }
+
+    @discardableResult
+    public func equalizeSplits() -> Workspace? {
+        var updatedWorkspace: Workspace?
+        lock.lock()
+        if let index = activeWorkspaceIndex,
+           workspaces[index].equalizeSplitsInFocusedTab() {
+            updatedWorkspace = workspaces[index]
+        }
+        lock.unlock()
+
+        if let updatedWorkspace {
+            onChange?(updatedWorkspace)
+        }
+
+        return updatedWorkspace
+    }
+
+    @discardableResult
+    public func resizeSplit(_ direction: PaneSplitResizeDirection) -> Workspace? {
+        var updatedWorkspace: Workspace?
+        lock.lock()
+        if let index = activeWorkspaceIndex,
+           workspaces[index].resizeFocusedSplit(direction) {
             updatedWorkspace = workspaces[index]
         }
         lock.unlock()

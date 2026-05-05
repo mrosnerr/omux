@@ -107,9 +107,11 @@ final class OmuxAppShellTests: XCTestCase {
         let workspaceMenu = menus?.first { $0.title == "Workspace" }
         let paneMenu = menus?.first { $0.title == "Pane" }
         let viewMenu = menus?.first { $0.title == "View" }
+        let resizeSplitMenu = paneMenu?.items.first { $0.title == "Resize Split" }?.submenu
         XCTAssertNotNil(workspaceMenu)
         XCTAssertNotNil(paneMenu)
         XCTAssertNotNil(viewMenu)
+        XCTAssertNotNil(resizeSplitMenu)
 
         XCTAssertTrue(workspaceMenu?.items.containsShortcut(
             title: "New Workspace",
@@ -120,6 +122,16 @@ final class OmuxAppShellTests: XCTestCase {
             title: "Delete Workspace",
             key: "n",
             modifiers: [.command, .shift]
+        ) ?? false)
+        XCTAssertTrue(workspaceMenu?.items.containsShortcut(
+            title: "Move Workspace Up",
+            key: String(UnicodeScalar(NSUpArrowFunctionKey)!),
+            modifiers: [.command, .control, .shift]
+        ) ?? false)
+        XCTAssertTrue(workspaceMenu?.items.containsShortcut(
+            title: "Move Workspace Down",
+            key: String(UnicodeScalar(NSDownArrowFunctionKey)!),
+            modifiers: [.command, .control, .shift]
         ) ?? false)
         XCTAssertFalse(viewMenu?.items.containsShortcut(
             title: "New Workspace",
@@ -163,6 +175,31 @@ final class OmuxAppShellTests: XCTestCase {
             title: "Close Pane Tab",
             key: "w",
             modifiers: [.command]
+        ) ?? false)
+        XCTAssertTrue(resizeSplitMenu?.items.containsShortcut(
+            title: "Equalize Splits",
+            key: "=",
+            modifiers: [.command, .control]
+        ) ?? false)
+        XCTAssertTrue(resizeSplitMenu?.items.containsShortcut(
+            title: "Move Divider Up",
+            key: String(UnicodeScalar(NSUpArrowFunctionKey)!),
+            modifiers: [.command, .control]
+        ) ?? false)
+        XCTAssertTrue(resizeSplitMenu?.items.containsShortcut(
+            title: "Move Divider Down",
+            key: String(UnicodeScalar(NSDownArrowFunctionKey)!),
+            modifiers: [.command, .control]
+        ) ?? false)
+        XCTAssertTrue(resizeSplitMenu?.items.containsShortcut(
+            title: "Move Divider Left",
+            key: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
+            modifiers: [.command, .control]
+        ) ?? false)
+        XCTAssertTrue(resizeSplitMenu?.items.containsShortcut(
+            title: "Move Divider Right",
+            key: String(UnicodeScalar(NSRightArrowFunctionKey)!),
+            modifiers: [.command, .control]
         ) ?? false)
     }
 
@@ -256,6 +293,31 @@ final class OmuxAppShellTests: XCTestCase {
         let withSplit = try XCTUnwrap(controller.splitFocusedPane())
         XCTAssertEqual(withSplit.focusedTab?.panes.count, 2)
         XCTAssertEqual(withSplit.focusedTab?.focusedPaneID, withSplit.focusedTab?.panes.last?.id)
+    }
+
+    func testWorkspaceControllerResizesAndEqualizesFocusedSplit() throws {
+        let controller = WorkspaceController(
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
+            hookRunner: ExternalHookRunner()
+        )
+
+        _ = try controller.openWorkspace(at: "/tmp")
+        _ = try controller.splitFocusedPane(axis: .columns)
+
+        XCTAssertTrue(controller.canResizeSplit(.left))
+        let resized = try XCTUnwrap(controller.resizeSplit(.left))
+        guard case .split(axis: .columns, proportions: let resizedProportions, children: _)? = resized.focusedTab?.rootLayout else {
+            return XCTFail("expected root layout to remain a split")
+        }
+        XCTAssertEqual(resizedProportions[0], 0.45, accuracy: 0.0001)
+        XCTAssertEqual(resizedProportions[1], 0.55, accuracy: 0.0001)
+
+        let equalized = try XCTUnwrap(controller.equalizeSplits())
+        guard case .split(axis: .columns, proportions: let equalizedProportions, children: _)? = equalized.focusedTab?.rootLayout else {
+            return XCTFail("expected root layout to remain a split")
+        }
+        XCTAssertEqual(equalizedProportions[0], 0.5, accuracy: 0.0001)
+        XCTAssertEqual(equalizedProportions[1], 0.5, accuracy: 0.0001)
     }
 
     @MainActor

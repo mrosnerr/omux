@@ -364,10 +364,10 @@ struct OmuxConfigTests {
         let result = OmuxConfigLoader(configURL: home.appendingPathComponent("config.toml")).load()
         #expect(result.hasErrors == false)
         #expect(result.config.keyBindings.count == 2)
-        #expect(result.config.keyBindings[0].chord.description == "cmd+shift+w")
-        #expect(result.config.keyBindings[0].action == nil)
-        #expect(result.config.keyBindings[1].chord.description == "cmd+shift+p")
-        #expect(result.config.keyBindings[1].action == .paneRemove)
+        let unbound = try #require(result.config.keyBindings.first { $0.chord.description == "cmd+shift+w" })
+        let rebound = try #require(result.config.keyBindings.first { $0.chord.description == "cmd+shift+p" })
+        #expect(unbound.action?.rawValue == nil)
+        #expect(rebound.action == .paneRemove)
     }
 
     @Test

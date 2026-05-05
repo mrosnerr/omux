@@ -303,6 +303,31 @@ public enum PaneSplitAxis: String, Codable, Sendable {
     case rows
 }
 
+public enum PaneSplitResizeDirection: String, Codable, Sendable {
+    case up
+    case down
+    case left
+    case right
+
+    public var axis: PaneSplitAxis {
+        switch self {
+        case .up, .down:
+            return .rows
+        case .left, .right:
+            return .columns
+        }
+    }
+
+    var proportionDelta: Double {
+        switch self {
+        case .up, .left:
+            return -0.05
+        case .down, .right:
+            return 0.05
+        }
+    }
+}
+
 public indirect enum TabLayoutNode: Equatable, Codable, Sendable {
     private struct PaneDetachResult {
         let pane: Pane
@@ -395,6 +420,15 @@ public indirect enum TabLayoutNode: Equatable, Codable, Sendable {
         }
     }
 
+    public var hasSplits: Bool {
+        switch self {
+        case .paneStack:
+            return false
+        case .split:
+            return true
+        }
+    }
+
     public func pane(id: PaneID) -> Pane? {
         switch self {
         case .paneStack(let paneStack):
@@ -441,6 +475,29 @@ public indirect enum TabLayoutNode: Equatable, Codable, Sendable {
         pane(id: id) != nil
     }
 
+    public func canResizeSplit(containingPaneID paneID: PaneID, direction: PaneSplitResizeDirection) -> Bool {
+        switch self {
+        case .paneStack:
+            return false
+
+        case .split(let axis, _, let children):
+            for child in children where child.containsPane(id: paneID) {
+                if child.canResizeSplit(containingPaneID: paneID, direction: direction) {
+                    return true
+                }
+            }
+
+            guard axis == direction.axis,
+                  children.count > 1,
+                  let childIndex = children.firstIndex(where: { $0.containsPane(id: paneID) })
+            else {
+                return false
+            }
+
+            return Self.dividerIndex(forChildAt: childIndex, direction: direction, childCount: children.count) != nil
+        }
+    }
+
     @discardableResult
     public mutating func updatePane(
         _ paneID: PaneID,
@@ -462,6 +519,68 @@ public indirect enum TabLayoutNode: Equatable, Codable, Sendable {
                 }
             }
             return false
+        }
+    }
+
+    @discardableResult
+    public mutating func equalizeSplits() -> Bool {
+        switch self {
+        case .paneStack:
+            return false
+
+        case .split(let axis, let proportions, var children):
+            var changed = false
+            for index in children.indices {
+                changed = children[index].equalizeSplits() || changed
+            }
+
+            let equalizedProportions = Self.normalizedSplitProportions([], childCount: children.count)
+            changed = changed || proportions != equalizedProportions
+            self = Self.makeSplit(axis: axis, proportions: equalizedProportions, children: children)
+            return changed
+        }
+    }
+
+    @discardableResult
+    public mutating func resizeSplit(
+        containingPaneID paneID: PaneID,
+        direction: PaneSplitResizeDirection
+    ) -> Bool {
+        switch self {
+        case .paneStack:
+            return false
+
+        case .split(let axis, let proportions, var children):
+            for index in children.indices where children[index].containsPane(id: paneID) {
+                if children[index].resizeSplit(containingPaneID: paneID, direction: direction) {
+                    self = Self.makeSplit(axis: axis, proportions: proportions, children: children)
+                    return true
+                }
+            }
+
+            guard axis == direction.axis,
+                  children.count > 1,
+                  let childIndex = children.firstIndex(where: { $0.containsPane(id: paneID) }),
+                  let dividerIndex = Self.dividerIndex(
+                      forChildAt: childIndex,
+                      direction: direction,
+                      childCount: children.count
+                  )
+            else {
+                return false
+            }
+
+            let currentProportions = Self.normalizedSplitProportions(proportions, childCount: children.count)
+            guard let updatedProportions = Self.proportions(
+                currentProportions,
+                movingDividerAt: dividerIndex,
+                by: direction.proportionDelta
+            ) else {
+                return false
+            }
+
+            self = Self.makeSplit(axis: axis, proportions: updatedProportions, children: children)
+            return true
         }
     }
 
@@ -665,6 +784,56 @@ public indirect enum TabLayoutNode: Equatable, Codable, Sendable {
         )
     }
 
+    private static func dividerIndex(
+        forChildAt childIndex: Int,
+        direction: PaneSplitResizeDirection,
+        childCount: Int
+    ) -> Int? {
+        guard childCount > 1 else {
+            return nil
+        }
+
+        switch direction {
+        case .up, .left:
+            if childIndex > 0 {
+                return childIndex - 1
+            }
+            return childIndex < childCount - 1 ? childIndex : nil
+
+        case .down, .right:
+            if childIndex < childCount - 1 {
+                return childIndex
+            }
+            return childIndex > 0 ? childIndex - 1 : nil
+        }
+    }
+
+    private static func proportions(
+        _ proportions: [Double],
+        movingDividerAt dividerIndex: Int,
+        by requestedDelta: Double
+    ) -> [Double]? {
+        let trailingIndex = dividerIndex + 1
+        guard proportions.indices.contains(dividerIndex),
+              proportions.indices.contains(trailingIndex)
+        else {
+            return nil
+        }
+
+        let minimumProportion = 0.05
+        let lowerDelta = minimumProportion - proportions[dividerIndex]
+        let upperDelta = proportions[trailingIndex] - minimumProportion
+        let delta = min(max(requestedDelta, lowerDelta), upperDelta)
+        guard abs(delta) > 0.000001 else {
+            return nil
+        }
+
+        var updatedProportions = proportions
+        updatedProportions[dividerIndex] += delta
+        updatedProportions[trailingIndex] -= delta
+        return normalizedSplitProportions(updatedProportions, childCount: updatedProportions.count)
+    }
+
     private static func normalizedSplitProportions(_ proportions: [Double], childCount: Int) -> [Double] {
         guard childCount > 0 else {
             return []
@@ -741,6 +910,10 @@ public struct Tab: Equatable, Codable, Sendable {
         rootLayout.paneStacks
     }
 
+    public var hasSplits: Bool {
+        rootLayout.hasSplits
+    }
+
     public var focusedPane: Pane? {
         rootLayout.pane(id: focusedPaneID)
     }
@@ -763,6 +936,10 @@ public struct Tab: Equatable, Codable, Sendable {
 
     public func previousVisiblePaneID() -> PaneID? {
         adjacentVisiblePaneID(offset: -1)
+    }
+
+    public func canResizeFocusedSplit(_ direction: PaneSplitResizeDirection) -> Bool {
+        rootLayout.canResizeSplit(containingPaneID: focusedPaneID, direction: direction)
     }
 
     @discardableResult
@@ -880,6 +1057,16 @@ public struct Tab: Equatable, Codable, Sendable {
         rootLayout.updateSplitProportions(proportions, forChildPaneIDs: childPaneIDs)
     }
 
+    @discardableResult
+    public mutating func equalizeSplits() -> Bool {
+        rootLayout.equalizeSplits()
+    }
+
+    @discardableResult
+    public mutating func resizeFocusedSplit(_ direction: PaneSplitResizeDirection) -> Bool {
+        rootLayout.resizeSplit(containingPaneID: focusedPaneID, direction: direction)
+    }
+
     private static func makeInitialLayout(from panes: [Pane]) -> TabLayoutNode {
         guard let firstPane = panes.first else {
             return .split(axis: .columns, proportions: [], children: [])
@@ -970,6 +1157,14 @@ public struct Workspace: Equatable, Codable, Sendable {
 
     public var focusedPaneStack: PaneStack? {
         focusedTab?.focusedPaneStack
+    }
+
+    public var hasFocusedTabSplits: Bool {
+        focusedTab?.hasSplits ?? false
+    }
+
+    public func canResizeFocusedSplit(_ direction: PaneSplitResizeDirection) -> Bool {
+        focusedTab?.canResizeFocusedSplit(direction) ?? false
     }
 
     @discardableResult
@@ -1140,6 +1335,24 @@ public struct Workspace: Equatable, Codable, Sendable {
         }
 
         return tabs[tabIndex].updateSplitProportions(proportions, forChildPaneIDs: childPaneIDs)
+    }
+
+    @discardableResult
+    public mutating func equalizeSplitsInFocusedTab() -> Bool {
+        guard let tabIndex = tabs.firstIndex(where: { $0.id == focusedTabID }) else {
+            return false
+        }
+
+        return tabs[tabIndex].equalizeSplits()
+    }
+
+    @discardableResult
+    public mutating func resizeFocusedSplit(_ direction: PaneSplitResizeDirection) -> Bool {
+        guard let tabIndex = tabs.firstIndex(where: { $0.id == focusedTabID }) else {
+            return false
+        }
+
+        return tabs[tabIndex].resizeFocusedSplit(direction)
     }
 }
 

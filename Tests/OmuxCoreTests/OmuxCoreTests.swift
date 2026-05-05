@@ -208,6 +208,68 @@ final class OmuxCoreTests: XCTestCase {
         XCTAssertEqual(optionTab.route, .terminal)
     }
 
+    func testSplitResizeChordsRouteToShortcut() {
+        let commandControlEqual = DefaultKeyEventNormalizer().normalize(
+            RawKeyInput(
+                keyCode: 24,
+                characters: "=",
+                charactersIgnoringModifiers: "=",
+                modifiers: [.leftCommand, .leftControl]
+            )
+        )
+        let commandControlLeft = DefaultKeyEventNormalizer().normalize(
+            RawKeyInput(
+                keyCode: 123,
+                characters: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
+                charactersIgnoringModifiers: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
+                modifiers: [.leftCommand, .leftControl]
+            )
+        )
+        let commandControlRight = DefaultKeyEventNormalizer().normalize(
+            RawKeyInput(
+                keyCode: 124,
+                characters: String(UnicodeScalar(NSRightArrowFunctionKey)!),
+                charactersIgnoringModifiers: String(UnicodeScalar(NSRightArrowFunctionKey)!),
+                modifiers: [.leftCommand, .leftControl]
+            )
+        )
+        let optionControlLeft = DefaultKeyEventNormalizer().normalize(
+            RawKeyInput(
+                keyCode: 123,
+                characters: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
+                charactersIgnoringModifiers: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
+                modifiers: [.leftOption, .leftControl]
+            )
+        )
+
+        XCTAssertEqual(commandControlEqual.route, .shortcut)
+        XCTAssertEqual(commandControlLeft.route, .shortcut)
+        XCTAssertEqual(commandControlRight.route, .shortcut)
+        XCTAssertEqual(optionControlLeft.route, .terminal)
+    }
+
+    func testWorkspaceMoveChordsRouteToShortcut() {
+        let commandControlShiftUp = DefaultKeyEventNormalizer().normalize(
+            RawKeyInput(
+                keyCode: 126,
+                characters: String(UnicodeScalar(NSUpArrowFunctionKey)!),
+                charactersIgnoringModifiers: String(UnicodeScalar(NSUpArrowFunctionKey)!),
+                modifiers: [.leftCommand, .leftControl, .leftShift]
+            )
+        )
+        let commandControlShiftDown = DefaultKeyEventNormalizer().normalize(
+            RawKeyInput(
+                keyCode: 125,
+                characters: String(UnicodeScalar(NSDownArrowFunctionKey)!),
+                charactersIgnoringModifiers: String(UnicodeScalar(NSDownArrowFunctionKey)!),
+                modifiers: [.leftCommand, .leftControl, .leftShift]
+            )
+        )
+
+        XCTAssertEqual(commandControlShiftUp.route, .shortcut)
+        XCTAssertEqual(commandControlShiftDown.route, .shortcut)
+    }
+
     func testUnknownCommandChordRemainsTerminalInput() {
         let commandA = RawKeyInput(
             keyCode: 0,
@@ -418,6 +480,36 @@ final class OmuxCoreTests: XCTestCase {
         XCTAssertEqual(children.count, 2)
         XCTAssertEqual(proportions[0], 0.7, accuracy: 0.0001)
         XCTAssertEqual(proportions[1], 0.3, accuracy: 0.0001)
+    }
+
+    func testFocusedSplitCanResizeAndEqualizeWithKeyboardStep() {
+        let firstPane = Pane(
+            title: "one",
+            session: SessionDescriptor(shell: "/bin/zsh", workingDirectory: "/tmp")
+        )
+        let secondPane = Pane(
+            title: "two",
+            session: SessionDescriptor(shell: "/bin/zsh", workingDirectory: "/tmp")
+        )
+        var tab = Tab(title: "Main", panes: [firstPane], focusedPaneID: firstPane.id)
+
+        XCTAssertTrue(tab.splitFocusedPane(secondPane, axis: .columns))
+        XCTAssertTrue(tab.canResizeFocusedSplit(.left))
+        XCTAssertTrue(tab.resizeFocusedSplit(.left))
+
+        guard case .split(axis: .columns, proportions: let resizedProportions, children: let children) = tab.rootLayout else {
+            return XCTFail("expected root layout to remain a split")
+        }
+        XCTAssertEqual(children.count, 2)
+        XCTAssertEqual(resizedProportions[0], 0.45, accuracy: 0.0001)
+        XCTAssertEqual(resizedProportions[1], 0.55, accuracy: 0.0001)
+
+        XCTAssertTrue(tab.equalizeSplits())
+        guard case .split(axis: .columns, proportions: let equalizedProportions, children: _) = tab.rootLayout else {
+            return XCTFail("expected equalized layout to remain a split")
+        }
+        XCTAssertEqual(equalizedProportions[0], 0.5, accuracy: 0.0001)
+        XCTAssertEqual(equalizedProportions[1], 0.5, accuracy: 0.0001)
     }
 
     func testClosingLastPaneTabInStackIsRejected() {

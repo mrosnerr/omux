@@ -21,6 +21,11 @@ public enum OpenMUXKeyBindingAction: String, CaseIterable, Sendable {
     case paneRemove = "pane.remove"
     case paneNext = "pane.next"
     case panePrevious = "pane.previous"
+    case paneResizeEqualize = "pane.resize-equalize"
+    case paneResizeUp = "pane.resize-up"
+    case paneResizeDown = "pane.resize-down"
+    case paneResizeLeft = "pane.resize-left"
+    case paneResizeRight = "pane.resize-right"
     case paneTabCreate = "pane-tab.create"
     case paneTabClose = "pane-tab.close"
     case paneTabNext = "pane-tab.next"
@@ -130,7 +135,7 @@ public struct OpenMUXKeyChord: Hashable, Sendable {
         }
 
         switch rawKey {
-        case "tab", "backspace", "up", "down":
+        case "tab", "backspace", "up", "down", "left", "right", "=":
             return rawKey
         default:
             return nil
@@ -145,6 +150,10 @@ public struct OpenMUXKeyChord: Hashable, Sendable {
             return "down"
         case 126:
             return "up"
+        case 123:
+            return "left"
+        case 124:
+            return "right"
         default:
             break
         }
@@ -177,8 +186,8 @@ public struct OpenMUXKeyBindingRegistry: Equatable, Sendable {
         (try! OpenMUXKeyChord(parsing: "cmd+n"), .workspaceCreate),
         (try! OpenMUXKeyChord(parsing: "cmd+shift+n"), .workspaceClose),
         (try! OpenMUXKeyChord(parsing: "cmd+0"), .workspacePrevious),
-        (try! OpenMUXKeyChord(parsing: "cmd+ctrl+up"), .workspaceMoveUp),
-        (try! OpenMUXKeyChord(parsing: "cmd+ctrl+down"), .workspaceMoveDown),
+        (try! OpenMUXKeyChord(parsing: "cmd+ctrl+shift+up"), .workspaceMoveUp),
+        (try! OpenMUXKeyChord(parsing: "cmd+ctrl+shift+down"), .workspaceMoveDown),
         (try! OpenMUXKeyChord(parsing: "cmd+1"), .workspaceFocus1),
         (try! OpenMUXKeyChord(parsing: "cmd+2"), .workspaceFocus2),
         (try! OpenMUXKeyChord(parsing: "cmd+3"), .workspaceFocus3),
@@ -193,6 +202,11 @@ public struct OpenMUXKeyBindingRegistry: Equatable, Sendable {
         (try! OpenMUXKeyChord(parsing: "cmd+shift+d"), .paneSplitDown),
         (try! OpenMUXKeyChord(parsing: "cmd+shift+w"), .paneRemove),
         (try! OpenMUXKeyChord(parsing: "ctrl+shift+tab"), .paneNext),
+        (try! OpenMUXKeyChord(parsing: "cmd+ctrl+="), .paneResizeEqualize),
+        (try! OpenMUXKeyChord(parsing: "cmd+ctrl+up"), .paneResizeUp),
+        (try! OpenMUXKeyChord(parsing: "cmd+ctrl+down"), .paneResizeDown),
+        (try! OpenMUXKeyChord(parsing: "cmd+ctrl+left"), .paneResizeLeft),
+        (try! OpenMUXKeyChord(parsing: "cmd+ctrl+right"), .paneResizeRight),
         (try! OpenMUXKeyChord(parsing: "cmd+t"), .paneTabCreate),
         (try! OpenMUXKeyChord(parsing: "cmd+w"), .paneTabClose),
         (try! OpenMUXKeyChord(parsing: "ctrl+tab"), .paneTabNext),

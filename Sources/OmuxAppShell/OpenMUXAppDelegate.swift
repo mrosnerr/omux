@@ -26,6 +26,11 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
     private weak var previousPaneTabMenuItem: NSMenuItem?
     private weak var nextPaneMenuItem: NSMenuItem?
     private weak var previousPaneMenuItem: NSMenuItem?
+    private weak var equalizeSplitsMenuItem: NSMenuItem?
+    private weak var resizeSplitUpMenuItem: NSMenuItem?
+    private weak var resizeSplitDownMenuItem: NSMenuItem?
+    private weak var resizeSplitLeftMenuItem: NSMenuItem?
+    private weak var resizeSplitRightMenuItem: NSMenuItem?
     private weak var toggleSidebarMenuItem: NSMenuItem?
     private weak var installCLIMenuItem: NSMenuItem?
     private weak var previousWorkspaceMenuItem: NSMenuItem?
@@ -262,6 +267,36 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
     @objc private func focusPreviousPaneFromMenu(_ sender: Any?) {
         _ = sender
         _ = workspaceController.focusPreviousPane()
+        refreshMenuValidation()
+    }
+
+    @objc private func equalizeSplitsFromMenu(_ sender: Any?) {
+        _ = sender
+        _ = workspaceController.equalizeSplits()
+        refreshMenuValidation()
+    }
+
+    @objc private func resizeSplitUpFromMenu(_ sender: Any?) {
+        _ = sender
+        _ = workspaceController.resizeSplit(.up)
+        refreshMenuValidation()
+    }
+
+    @objc private func resizeSplitDownFromMenu(_ sender: Any?) {
+        _ = sender
+        _ = workspaceController.resizeSplit(.down)
+        refreshMenuValidation()
+    }
+
+    @objc private func resizeSplitLeftFromMenu(_ sender: Any?) {
+        _ = sender
+        _ = workspaceController.resizeSplit(.left)
+        refreshMenuValidation()
+    }
+
+    @objc private func resizeSplitRightFromMenu(_ sender: Any?) {
+        _ = sender
+        _ = workspaceController.resizeSplit(.right)
         refreshMenuValidation()
     }
 
@@ -503,6 +538,54 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         )
         previousPaneMenuItem.target = self
         paneMenu.addItem(previousPaneMenuItem)
+        paneMenu.addItem(.separator())
+
+        let resizeSplitMenuItem = NSMenuItem(title: "Resize Split", action: nil, keyEquivalent: "")
+        let resizeSplitMenu = NSMenu(title: "Resize Split")
+
+        let equalizeSplitsMenuItem = NSMenuItem(
+            title: "Equalize Splits",
+            action: #selector(equalizeSplitsFromMenu(_:)),
+            keyEquivalent: ""
+        )
+        equalizeSplitsMenuItem.target = self
+        resizeSplitMenu.addItem(equalizeSplitsMenuItem)
+        resizeSplitMenu.addItem(.separator())
+
+        let resizeSplitUpMenuItem = NSMenuItem(
+            title: "Move Divider Up",
+            action: #selector(resizeSplitUpFromMenu(_:)),
+            keyEquivalent: ""
+        )
+        resizeSplitUpMenuItem.target = self
+        resizeSplitMenu.addItem(resizeSplitUpMenuItem)
+
+        let resizeSplitDownMenuItem = NSMenuItem(
+            title: "Move Divider Down",
+            action: #selector(resizeSplitDownFromMenu(_:)),
+            keyEquivalent: ""
+        )
+        resizeSplitDownMenuItem.target = self
+        resizeSplitMenu.addItem(resizeSplitDownMenuItem)
+
+        let resizeSplitLeftMenuItem = NSMenuItem(
+            title: "Move Divider Left",
+            action: #selector(resizeSplitLeftFromMenu(_:)),
+            keyEquivalent: ""
+        )
+        resizeSplitLeftMenuItem.target = self
+        resizeSplitMenu.addItem(resizeSplitLeftMenuItem)
+
+        let resizeSplitRightMenuItem = NSMenuItem(
+            title: "Move Divider Right",
+            action: #selector(resizeSplitRightFromMenu(_:)),
+            keyEquivalent: ""
+        )
+        resizeSplitRightMenuItem.target = self
+        resizeSplitMenu.addItem(resizeSplitRightMenuItem)
+
+        resizeSplitMenuItem.submenu = resizeSplitMenu
+        paneMenu.addItem(resizeSplitMenuItem)
 
         paneMenuItem.submenu = paneMenu
         mainMenu.addItem(paneMenuItem)
@@ -540,6 +623,11 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         self.previousPaneTabMenuItem = previousPaneTabMenuItem
         self.nextPaneMenuItem = nextPaneMenuItem
         self.previousPaneMenuItem = previousPaneMenuItem
+        self.equalizeSplitsMenuItem = equalizeSplitsMenuItem
+        self.resizeSplitUpMenuItem = resizeSplitUpMenuItem
+        self.resizeSplitDownMenuItem = resizeSplitDownMenuItem
+        self.resizeSplitLeftMenuItem = resizeSplitLeftMenuItem
+        self.resizeSplitRightMenuItem = resizeSplitRightMenuItem
         applyMenuKeyBindings()
     }
 
@@ -577,6 +665,11 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         previousPaneTabMenuItem?.isEnabled = workspaceController.canFocusPaneTab()
         nextPaneMenuItem?.isEnabled = workspaceController.canFocusPane()
         previousPaneMenuItem?.isEnabled = workspaceController.canFocusPane()
+        equalizeSplitsMenuItem?.isEnabled = workspaceController.canEqualizeSplits()
+        resizeSplitUpMenuItem?.isEnabled = workspaceController.canResizeSplit(.up)
+        resizeSplitDownMenuItem?.isEnabled = workspaceController.canResizeSplit(.down)
+        resizeSplitLeftMenuItem?.isEnabled = workspaceController.canResizeSplit(.left)
+        resizeSplitRightMenuItem?.isEnabled = workspaceController.canResizeSplit(.right)
     }
 
     private func applyMenuKeyBindings() {
@@ -601,6 +694,11 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         setShortcut(for: previousPaneTabMenuItem, action: .paneTabPrevious)
         setShortcut(for: nextPaneMenuItem, action: .paneNext)
         setShortcut(for: previousPaneMenuItem, action: .panePrevious)
+        setShortcut(for: equalizeSplitsMenuItem, action: .paneResizeEqualize)
+        setShortcut(for: resizeSplitUpMenuItem, action: .paneResizeUp)
+        setShortcut(for: resizeSplitDownMenuItem, action: .paneResizeDown)
+        setShortcut(for: resizeSplitLeftMenuItem, action: .paneResizeLeft)
+        setShortcut(for: resizeSplitRightMenuItem, action: .paneResizeRight)
     }
 
     private func setShortcut(for item: NSMenuItem?, action: OpenMUXKeyBindingAction) {
@@ -772,6 +870,10 @@ private struct AppKitMenuShortcut {
             keyEquivalent = String(UnicodeScalar(NSUpArrowFunctionKey)!)
         case "down":
             keyEquivalent = String(UnicodeScalar(NSDownArrowFunctionKey)!)
+        case "left":
+            keyEquivalent = String(UnicodeScalar(NSLeftArrowFunctionKey)!)
+        case "right":
+            keyEquivalent = String(UnicodeScalar(NSRightArrowFunctionKey)!)
         default:
             keyEquivalent = chord.key
         }
