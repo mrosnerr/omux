@@ -2388,6 +2388,12 @@ final class OmuxAppShellTests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceSidebarDragRegionsDoNotMoveWindow() {
+        XCTAssertFalse(WorkspaceSidebarView().mouseDownCanMoveWindow)
+        XCTAssertFalse(SidebarItemButton().mouseDownCanMoveWindow)
+    }
+
+    @MainActor
     func testPaneTabAddButtonCreatesTabInClickedPaneStack() throws {
         let controller = WorkspaceController(
             bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
@@ -3275,6 +3281,20 @@ final class OmuxAppShellTests: XCTestCase {
 
         XCTAssertNil(errorBox.value)
         XCTAssertEqual(invalidResponseBox.value?.error?.code, 404)
+    }
+
+    func testPaneTabTitleFormatterKeepsShortTitlesUnchanged() {
+        XCTAssertEqual(PaneTabTitleFormatter.displayTitle("~/Projects/DungeonPlanner"), "~/Projects/DungeonPlanner")
+    }
+
+    func testPaneTabTitleFormatterBoundsLongTitles() {
+        let title = ".../T/openmux-update-0733BCA7-E332-40BC-B156-16BA405604E7/unpacked"
+        let displayTitle = PaneTabTitleFormatter.displayTitle(title, maximumLength: 44)
+
+        XCTAssertLessThanOrEqual(displayTitle.count, 44)
+        XCTAssertTrue(displayTitle.hasPrefix(".../T/openmux-update"))
+        XCTAssertTrue(displayTitle.hasSuffix("unpacked"))
+        XCTAssertNotEqual(displayTitle, title)
     }
 
     @MainActor

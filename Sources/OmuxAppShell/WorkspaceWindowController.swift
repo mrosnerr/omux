@@ -649,6 +649,7 @@ final class WorkspaceSidebarView: NSView {
     }
 
     override var isFlipped: Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false }
 
     func apply(theme: WorkspaceShellTheme) {
         layer?.backgroundColor = theme.shell.sidebarBackground.cgColor
@@ -772,6 +773,11 @@ private final class SidebarUpdateNoticeView: NSView {
 
 @MainActor
 private final class WorkspaceSidebarSectionView: NSView {
+    private struct WorkspaceDragGroup {
+        let workspaceID: WorkspaceID
+        var buttons: [SidebarItemButton]
+    }
+
     private let titleLabel = NSTextField(labelWithString: "")
     private let headerStack = NSStackView()
     private let itemStack = NSStackView()
@@ -779,10 +785,10 @@ private final class WorkspaceSidebarSectionView: NSView {
     private var accessoryButtons: [ChromePillButton] = []
     private var itemButtons: [SidebarItemButton] = []
     private var workspaceButtons: [SidebarItemButton] = []
+    private var workspaceDragGroups: [WorkspaceDragGroup] = []
     private var currentTheme: WorkspaceShellTheme?
     private var reorderHandler: ((WorkspaceID, Int) -> Void)?
     private var draggingWorkspaceID: WorkspaceID?
-    private var dropTargetWorkspaceID: WorkspaceID?
 
     init() {
         super.init(frame: .zero)
@@ -851,7 +857,6 @@ private final class WorkspaceSidebarSectionView: NSView {
         currentTheme = theme
         reorderHandler = onMoveWorkspace
         draggingWorkspaceID = nil
-        dropTargetWorkspaceID = nil
 
         for button in itemButtons {
             itemStack.removeArrangedSubview(button)
@@ -859,6 +864,7 @@ private final class WorkspaceSidebarSectionView: NSView {
         }
         itemButtons.removeAll()
         workspaceButtons.removeAll()
+        workspaceDragGroups.removeAll()
 
         for accessoryButton in accessoryButtons {
             headerStack.removeArrangedSubview(accessoryButton)
@@ -892,6 +898,7 @@ private final class WorkspaceSidebarSectionView: NSView {
             if let workspaceID = item.workspaceID {
                 button.workspaceID = workspaceID
                 workspaceButtons.append(button)
+                workspaceDragGroups.append(WorkspaceDragGroup(workspaceID: workspaceID, buttons: [button]))
                 button.onDragStarted = { [weak self] button, _ in
                     self?.beginWorkspaceDrag(for: button)
                 }
@@ -906,6 +913,9 @@ private final class WorkspaceSidebarSectionView: NSView {
                 button.onDragStarted = nil
                 button.onDragMoved = nil
                 button.onDragEnded = nil
+                if let lastGroupIndex = workspaceDragGroups.indices.last {
+                    workspaceDragGroups[lastGroupIndex].buttons.append(button)
+                }
             }
             itemStack.addArrangedSubview(button)
             button.widthAnchor.constraint(equalTo: itemStack.widthAnchor).isActive = true
@@ -916,7 +926,6 @@ private final class WorkspaceSidebarSectionView: NSView {
 
     private func beginWorkspaceDrag(for button: SidebarItemButton) {
         draggingWorkspaceID = button.workspaceID
-        dropTargetWorkspaceID = button.workspaceID
         updateWorkspaceDragAppearance()
     }
 
@@ -925,28 +934,22 @@ private final class WorkspaceSidebarSectionView: NSView {
             return
         }
 
-        let locationInWindow = event.locationInWindow
-        if let targetButton = workspaceButtons.first(where: { button in
-            let center = button.convert(CGPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)
-            return locationInWindow.y >= center.y
-        }) {
-            dropTargetWorkspaceID = targetButton.workspaceID
-        } else {
-            dropTargetWorkspaceID = workspaceButtons.last?.workspaceID
+        guard let targetIndex = workspaceInsertionIndex(for: event) else {
+            return
         }
+
+        previewWorkspaceDrag(toWorkspaceIndex: targetIndex)
         updateWorkspaceDragAppearance()
     }
 
     private func finishWorkspaceDrag(for button: SidebarItemButton) {
         defer {
             draggingWorkspaceID = nil
-            dropTargetWorkspaceID = nil
             updateWorkspaceDragAppearance()
         }
 
         guard let workspaceID = button.workspaceID,
-              let targetWorkspaceID = dropTargetWorkspaceID,
-              let targetIndex = workspaceButtons.firstIndex(where: { $0.workspaceID == targetWorkspaceID })
+              let targetIndex = workspaceDragGroups.firstIndex(where: { $0.workspaceID == workspaceID })
         else {
             return
         }
@@ -954,10 +957,59 @@ private final class WorkspaceSidebarSectionView: NSView {
         reorderHandler?(workspaceID, targetIndex)
     }
 
+    private func workspaceInsertionIndex(for event: NSEvent) -> Int? {
+        guard let draggingWorkspaceID else {
+            return nil
+        }
+
+        let candidateButtons = workspaceButtons.filter { $0.workspaceID != draggingWorkspaceID }
+        for (index, button) in candidateButtons.enumerated() {
+            let center = button.convert(CGPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)
+            if event.locationInWindow.y >= center.y {
+                return index
+            }
+        }
+        return candidateButtons.count
+    }
+
     private func updateWorkspaceDragAppearance() {
-        for button in workspaceButtons {
-            button.alphaValue = button.workspaceID == draggingWorkspaceID ? 0.6 : 1
-            button.setDropTarget(button.workspaceID == dropTargetWorkspaceID && draggingWorkspaceID != nil, theme: currentTheme)
+        for group in workspaceDragGroups {
+            let isDraggingGroup = group.workspaceID == draggingWorkspaceID
+            for button in group.buttons {
+                button.alphaValue = isDraggingGroup ? 0.72 : 1
+                button.setDropTarget(false, theme: currentTheme)
+            }
+            group.buttons.first?.setDraggingPreview(isDraggingGroup, theme: currentTheme)
+        }
+    }
+
+    private func previewWorkspaceDrag(toWorkspaceIndex targetIndex: Int) {
+        guard let draggingWorkspaceID,
+              let currentIndex = workspaceDragGroups.firstIndex(where: { $0.workspaceID == draggingWorkspaceID }),
+              targetIndex >= workspaceDragGroups.startIndex,
+              targetIndex <= workspaceDragGroups.endIndex - 1,
+              currentIndex != targetIndex
+        else {
+            return
+        }
+
+        let group = workspaceDragGroups.remove(at: currentIndex)
+        workspaceDragGroups.insert(group, at: targetIndex)
+        workspaceButtons = workspaceDragGroups.compactMap { group in
+            group.buttons.first { $0.workspaceID == group.workspaceID }
+        }
+
+        let arrangedButtons = workspaceDragGroups.flatMap(\.buttons)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.14
+            context.allowsImplicitAnimation = true
+            for button in arrangedButtons {
+                itemStack.removeArrangedSubview(button)
+            }
+            for (index, button) in arrangedButtons.enumerated() {
+                itemStack.insertArrangedSubview(button, at: index)
+            }
+            itemStack.layoutSubtreeIfNeeded()
         }
     }
 }
@@ -1414,6 +1466,8 @@ final class PaneHeaderView: NSView {
         tabStrip.alignment = .centerY
         tabStrip.spacing = 6
         tabStrip.identifier = NSUserInterfaceItemIdentifier("pane-tab-strip-\(paneStack.id.rawValue)")
+        tabStrip.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        tabStrip.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         for pane in paneStack.panes {
             let button = PaneTabButton(
@@ -1456,6 +1510,37 @@ final class PaneHeaderView: NSView {
     }
 }
 
+struct PaneTabTitleFormatter {
+    static let defaultMaximumLength = 44
+    private static let truncationMarker = "..."
+
+    static func displayTitle(
+        _ title: String,
+        maximumLength: Int = defaultMaximumLength
+    ) -> String {
+        guard maximumLength > 0 else {
+            return ""
+        }
+
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayTitle = trimmedTitle.isEmpty ? title : trimmedTitle
+        guard displayTitle.count > maximumLength else {
+            return displayTitle
+        }
+
+        guard maximumLength > truncationMarker.count + 1 else {
+            return String(displayTitle.prefix(maximumLength))
+        }
+
+        let remainingLength = maximumLength - truncationMarker.count
+        let leadingLength = max(1, remainingLength / 2)
+        let trailingLength = max(1, remainingLength - leadingLength)
+        return String(displayTitle.prefix(leadingLength))
+            + truncationMarker
+            + String(displayTitle.suffix(trailingLength))
+    }
+}
+
 @MainActor
 private final class PaneTabButton: NSControl {
     var onPress: (() -> Void)?
@@ -1490,11 +1575,15 @@ private final class PaneTabButton: NSControl {
         layer?.cornerRadius = 3
         identifier = NSUserInterfaceItemIdentifier("pane-tab-\(pane.id.rawValue)")
         setAccessibilityLabel(pane.title)
+        toolTip = pane.title
+        setContentHuggingPriority(.defaultLow, for: .horizontal)
+        setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.font = .systemFont(ofSize: 11, weight: active ? .semibold : .medium)
         titleLabel.lineBreakMode = .byTruncatingMiddle
-        titleLabel.stringValue = pane.title
+        titleLabel.stringValue = PaneTabTitleFormatter.displayTitle(pane.title)
+        titleLabel.toolTip = pane.title
         titleLabel.textColor = active ? theme.shell.selectedText : theme.shell.textSecondary
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         addSubview(titleLabel)
@@ -1521,6 +1610,7 @@ private final class PaneTabButton: NSControl {
     }
 
     override var acceptsFirstResponder: Bool { false }
+    override var mouseDownCanMoveWindow: Bool { false }
 
     override var isEnabled: Bool {
         didSet {
@@ -1730,6 +1820,7 @@ private class ChromePillButton: NSControl {
     }
 
     override var acceptsFirstResponder: Bool { false }
+    override var mouseDownCanMoveWindow: Bool { false }
 
     override func mouseDown(with event: NSEvent) {
         guard isEnabled else {
@@ -1863,6 +1954,7 @@ final class SidebarItemButton: NSView {
     }
 
     override var acceptsFirstResponder: Bool { false }
+    override var mouseDownCanMoveWindow: Bool { false }
 
     override func mouseDown(with event: NSEvent) {
         guard onDragStarted != nil || onDragMoved != nil || onDragEnded != nil else {
@@ -1921,6 +2013,13 @@ final class SidebarItemButton: NSView {
         }
         layer?.borderWidth = isDropTarget ? 1 : 0
         layer?.borderColor = isDropTarget ? theme.shell.selection.cgColor : nil
+    }
+
+    func setDraggingPreview(_ isDragging: Bool, theme: WorkspaceShellTheme?) {
+        layer?.shadowOpacity = isDragging ? 0.18 : 0
+        layer?.shadowRadius = isDragging ? 8 : 0
+        layer?.shadowOffset = isDragging ? CGSize(width: 0, height: -2) : .zero
+        layer?.shadowColor = theme?.shell.selection.cgColor
     }
 }
 

@@ -101,8 +101,8 @@ final class OmuxTerminalBridgeTests: XCTestCase {
             .appendingPathComponent("ScrollbackReplayStoreTests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let store = ScrollbackReplayStore(directoryURL: root)
-        let prompt = "omux [\u{001B}[35mbug-fix-auto-updater\u{001B}[0m][$!?][v6.3][aws]"
-        let plainPrompt = "omux [bug-fix-auto-updater][$!?][v6.3][aws]"
+        let prompt = "project [\u{001B}[35mbranch-name\u{001B}[0m][$!?][tool v1]"
+        let plainPrompt = "project [branch-name][$!?][tool v1]"
         let scrollback = PaneScrollbackSnapshot(
             text: """
             real output
@@ -118,6 +118,26 @@ final class OmuxTerminalBridgeTests: XCTestCase {
 
         XCTAssertEqual(replayText, "real output")
         XCTAssertFalse(replayText.contains("\u{001B}[35m"))
+    }
+
+    func testScrollbackReplayStoreDropsTrailingBracketedPromptVariants() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ScrollbackReplayStoreTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ScrollbackReplayStore(directoryURL: root)
+        let dirtyPrompt = "project [\u{001B}[35mbranch-name\u{001B}[0m][\u{001B}[35m$!\u{001B}[0m][tool v1]"
+        let cleanPrompt = "project [\u{001B}[35mbranch-name\u{001B}[0m][\u{001B}[35m$\u{001B}[0m][tool v1]"
+        let scrollback = PaneScrollbackSnapshot(
+            text: "real output\r\n\(dirtyPrompt)\r\n\(cleanPrompt)\r\n",
+            truncated: false
+        )
+
+        XCTAssertEqual(TerminalScrollbackTextSanitizer.sanitizedForReplayOrPersistence(scrollback.text), "real output")
+        let replay = try XCTUnwrap(store.prepareReplay(for: scrollback))
+        let replayText = try String(contentsOf: replay.fileURL, encoding: .utf8)
+
+        XCTAssertEqual(replayText, "real output")
+        XCTAssertFalse(replayText.contains("branch-name"))
     }
 
     func testScrollbackReplayStoreKeepsPlainRepeatedTailOutput() throws {
@@ -138,7 +158,7 @@ final class OmuxTerminalBridgeTests: XCTestCase {
             .appendingPathComponent("ScrollbackReplayStoreTests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let store = ScrollbackReplayStore(directoryURL: root)
-        let prompt = "omux [bug-fix-auto-updater][$!?][v6.3][aws]"
+        let prompt = "project [branch-name][$!?][tool v1]"
         let scrollback = PaneScrollbackSnapshot(
             text: """
             useful output
@@ -168,7 +188,7 @@ final class OmuxTerminalBridgeTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let store = ScrollbackReplayStore(directoryURL: root)
         let scrollback = PaneScrollbackSnapshot(
-            text: "omux [bug-fix-auto-updater][$!?][v6.3][aws]",
+            text: "project [branch-name][$!?][tool v1]",
             truncated: false
         )
 
@@ -1258,6 +1278,20 @@ final class OmuxTerminalBridgeTests: XCTestCase {
         XCTAssertTrue(snapshot.truncated)
     }
 
+    func testBridgeUsesStyledScrollbackSnapshotForReplayOnly() throws {
+        let runtime = InspectableGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let session = SessionDescriptor(shell: "/bin/sh", workingDirectory: "/tmp")
+        let pane = Pane(title: "Main", session: session)
+
+        let attachment = try bridge.attach(session: session, to: pane)
+        runtime.scrollbackBySurface[attachment.runtimeSurfaceID] = "red"
+        runtime.styledScrollbackBySurface[attachment.runtimeSurfaceID] = "\u{001B}[31mred\u{001B}[0m"
+
+        XCTAssertEqual(bridge.terminalTextSnapshot(for: pane.id).text, "red")
+        XCTAssertEqual(bridge.scrollbackSnapshot(for: pane.id)?.text, "\u{001B}[31mred\u{001B}[0m")
+    }
+
     func testBridgeReturnsByteBoundedScrollbackSnapshot() throws {
         let runtime = InspectableGhosttyRuntime()
         let bridge = GhosttyTerminalBridge(runtime: runtime)
@@ -1417,6 +1451,7 @@ private final class InspectableGhosttyRuntime: GhosttyRuntime {
     private(set) var mousePressures: [(stage: Int, pressure: Double)] = []
     var selectionsBySurface: [String: RuntimeTerminalSelection] = [:]
     var scrollbackBySurface: [String: String] = [:]
+    var styledScrollbackBySurface: [String: String] = [:]
 
     func applyCompiledConfig(path: URL) throws -> [OmuxConfigDiagnostic] {
         try loadVisibleState(from: path)
@@ -1524,7 +1559,14 @@ private final class InspectableGhosttyRuntime: GhosttyRuntime {
     }
 
     func scrollbackSnapshot(runtimeSurfaceID: String, maxBytes: Int, maxLines: Int) -> PaneScrollbackSnapshot? {
-        terminalTextSnapshot(
+        if let text = styledScrollbackBySurface[runtimeSurfaceID] {
+            return PaneScrollbackSnapshot.bounded(
+                text: text,
+                maxBytes: maxBytes,
+                maxLines: maxLines
+            )
+        }
+        return terminalTextSnapshot(
             runtimeSurfaceID: runtimeSurfaceID,
             maxBytes: maxBytes,
             maxLines: maxLines
