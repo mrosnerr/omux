@@ -56,10 +56,10 @@ OpenMUX is already a usable beta foundation with:
 
 - native macOS shell chrome built AppKit-first
 - workspaces, top-level tabs, split panes, and pane-local tab stacks
-- persistent interactive shell sessions with direct typing, paste, resize, and command injection
+- persistent interactive shell sessions with direct typing, paste, resize, command injection, and bounded scrollback restore across app restarts
 - a local `omux` CLI plus JSON-RPC control plane
 - external hooks and a mixed local event stream via `omux events`
-- token-based theme ownership with built-in themes and user overrides
+- token-based theme ownership with fuzzy-searchable built-in themes and user overrides
 - required vendored Ghostty runtime hosting behind a narrow OpenMUX bridge
 - explicit keyboard-correctness work for ISO layouts, Option behavior, dead keys, compose input, and IME-sensitive flows
 
@@ -88,29 +88,20 @@ OpenMUX is built around durable primitives instead of one blessed workflow:
 
 The CLI talks to the running app over a local JSON-RPC Unix socket boundary.
 
-Current examples:
+Small taste of what the CLI can do:
 
 ```bash
 omux list
 omux open [path]
-omux workspace-close [workspace-id]
-omux tab
 omux split down
-omux pane-remove [--pane <pane-id>]
-omux pane-tab
-omux pane-tab-next
-omux pane-tab-prev
-omux pane-tab-focus <pane-id>
-omux pane-tab-close [pane-id]
 omux run <session-id> "pwd"
-omux notify "Build finished"
+omux theme
+omux history clear --focused
 omux events
+omux update
 ```
 
-`omux events` now streams both:
-
-- `terminal.*` runtime events such as cwd changes, title changes, bells, progress, command completion, and renderer health
-- successful shared action events such as `workspace.opened`, `tab.created`, `pane.split`, `paneTab.created`, `paneTab.focused`, `paneTab.closed`, `session.focused`, `command.started`, `notification.raised`, and `workspace.restored`
+Use `omux help` for the command list, then jump into [Getting started](./docs/getting-started.md) and [Configuration and themes](./docs/configuration.md) for the practical walkthroughs.
 
 ## Architecture direction
 
@@ -126,34 +117,20 @@ The product speaks in OpenMUX concepts: workspaces, tabs, panes, sessions, hooks
 
 ## Configuration and themes
 
-OpenMUX owns its user-facing configuration:
+OpenMUX owns its user-facing configuration in `~/.omux/config.toml`, custom themes in `~/.omux/themes/`, generated Ghostty artifacts in `~/.omux/generated/ghostty/`, and local workspace/scrollback state under `~/Library/Application Support/OpenMUX/`.
 
-- config file: `~/.omux/config.toml`
-- custom themes: `~/.omux/themes/`
-- generated Ghostty artifacts: `~/.omux/generated/ghostty/`
-
-`omux config init` writes the complete default config, including the `[keys]` table. Map a binding to `"none"` when an OpenMUX shortcut conflicts with a terminal application shortcut you want to preserve.
-
-Built-in themes currently include:
-
-- `monokai-soda`
-- `catppuccin`
-- `dracula`
-- `nord`
-- `gruvbox`
-- `one-dark`
-- `solarized-dark`
-- `solarized-light`
-
-Useful commands:
+Themes are OpenMUX-native tokens with built-in presets and user overrides. Run `omux theme` for the fuzzy-search picker, or use direct commands:
 
 ```bash
 omux config init
 omux config doctor
 omux config reload
+omux theme
 omux theme list
 omux theme nord
 ```
+
+For the full built-in theme list, custom token format, terminal settings, persisted scrollback behavior, and keybinding model, see [Configuration and themes](./docs/configuration.md).
 
 ## Quick start for contributors
 
@@ -171,12 +148,12 @@ If you want the current module boundaries, runtime build notes, and command list
 
 ## Releases and installation
 
-OpenMUX has an early GitHub Release flow for downloadable macOS artifacts.
+OpenMUX has an early GitHub Release flow for downloadable macOS artifacts, packaged with:
 
-- local packaging: `make package-release` using the root `VERSION`
-- release prep: `Scripts/check-changes-since-release.sh` then `Scripts/prepare-release.sh <version>`
+- `make package-release`
 - tag-driven GitHub Releases on `v*`
 - unsigned macOS app and CLI archives plus checksums
+- in-app background update checks when enabled, plus explicit CLI updates with `omux update`
 
 The app bundle includes a bundled `omux` binary. You can install it from the app with **OpenMUX -> Install omux CLI**, or from Terminal with:
 
@@ -184,7 +161,7 @@ The app bundle includes a bundled `omux` binary. You can install it from the app
 /Applications/OpenMUX.app/Contents/MacOS/omux install-cli
 ```
 
-After that, `omux version` reports the installed version and `omux update` checks the latest GitHub Release, verifies the app archive checksum, stages it in a per-user temporary directory, and installs it. If OpenMUX is running, the updater asks before closing it and performs the final app replacement from a detached helper.
+After that, `omux version` reports the installed version and `omux update` installs the latest verified GitHub Release.
 
 For the exact packaging and release flow, see [docs/releasing.md](./docs/releasing.md).
 
@@ -195,10 +172,11 @@ OpenMUX is in **beta**.
 The foundations are now in place:
 
 1. Native app shell, workspace tabs, split panes, and pane-local tabs
-2. `omux` CLI, JSON-RPC control plane, hooks, and local events
+2. `omux` CLI, JSON-RPC control plane, hooks, local events, and self-update plumbing
 3. Required vendored Ghostty runtime path
 4. Theme/config ownership in OpenMUX-native terms
-5. CI and first-pass release automation
+5. Persisted workspace and bounded scrollback restore
+6. CI and first-pass release automation
 
 Current follow-on areas include transcript quality, layout restore polish, richer automation, and a broader plugin story.
 
