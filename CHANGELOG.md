@@ -5,6 +5,18 @@ OpenMUX release notes are committed here before tagging a release. Use `Scripts/
 
 
 
+
+## 0.9.0
+
+### Added
+
+- Added split resizing for the active pane, including menu actions and default shortcuts for equalizing splits and moving split dividers up, down, left, or right.
+- Added configurable keybinding actions for pane resizing: `pane.resize-equalize`, `pane.resize-up`, `pane.resize-down`, `pane.resize-left`, and `pane.resize-right`.
+
+### Changed
+
+- Updated configuration documentation with the new pane-resizing shortcuts and action names.
+
 ## 0.8.0
 
 ### Fixed
