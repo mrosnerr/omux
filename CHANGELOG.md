@@ -2,6 +2,25 @@
 
 OpenMUX release notes are committed here before tagging a release. Use `Scripts/check-changes-since-release.sh` to inspect changes since the latest `v*` tag, then use `Scripts/prepare-release.sh <version>` with a reviewed changelog body to prepare the next release.
 
+
+## 0.11.0
+
+### Added
+
+- Added drag-and-drop pane tab layout management. Drag a pane tab to pane edges to split left, right, up, or down; drag to the title bar or canvas edges for full-span root splits; drag onto another pane stack's tab strip to merge it there.
+- Added drag feedback for pane-tab moves, including a tab ghost, split and merge previews, and Escape cancellation.
+- Added `[ui.panes].inactive_opacity` for configuring inactive pane dimming, plus `omux config inactive-opacity <0.0-1.0>` to update it and reload configuration from the CLI.
+
+### Changed
+
+- Changed active pane presentation so the focused pane only appears fully active while the OpenMUX window is key, making inactive windows visually distinct.
+- Changed pane-tab closing behavior so single-pane stacks in split layouts and non-last workspace tabs can be closed where appropriate.
+
+### Fixed
+
+- Fixed GhosttyKit setup on Xcode 26.4 by preferring Homebrew's patched `zig@0.15` before the repo-local downloaded Zig fallback, while keeping PATH and download fallbacks available.
+- Fixed CI reliability by bounding the macOS verification job runtime.
+
 ## 0.10.0
 
 ### Added
