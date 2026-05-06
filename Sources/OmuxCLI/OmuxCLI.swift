@@ -1259,8 +1259,11 @@ public struct OmuxCLICommand {
             return 1
         }
 
+        let progressRenderer = OmuxTerminalProgressRenderer(writeLine: writeLine)
         _ = try OmuxSelfUpdater(
             versionProvider: versionProvider,
+            writeProgress: progressRenderer.render,
+            finishProgress: progressRenderer.finish,
             writeLine: writeLine,
             readInputLine: readInputLine
         ).runUpdate()
@@ -1484,6 +1487,35 @@ struct ThemePickerViewport: Equatable {
             endIndex: startIndex + visibleCount,
             visibleCount: visibleCount
         )
+    }
+}
+
+private final class OmuxTerminalProgressRenderer {
+    private let isTerminal = isatty(STDOUT_FILENO) == 1
+    private let writeLine: (String) -> Void
+    private var renderedWidth = 0
+
+    init(writeLine: @escaping (String) -> Void) {
+        self.writeLine = writeLine
+    }
+
+    func render(_ line: String) {
+        guard isTerminal else {
+            writeLine(line)
+            return
+        }
+
+        let paddingWidth = max(renderedWidth - line.count, 0)
+        renderedWidth = line.count
+        print("\r\(line)\(String(repeating: " ", count: paddingWidth))", terminator: "")
+        fflush(stdout)
+    }
+
+    func finish() {
+        guard isTerminal else {
+            return
+        }
+        print("")
     }
 }
 

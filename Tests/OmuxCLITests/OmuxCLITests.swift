@@ -169,6 +169,59 @@ final class OmuxCLITests: XCTestCase {
         XCTAssertTrue(output.contains("OpenMUX 0.5.0 [####################] 100% 10 B / 10 B"))
     }
 
+    func testUpdateHelperKeepsInstallOnlyAfterSuccessfulRelaunch() throws {
+        let fixture = try makeHelperInstallFixture(currentVersion: "0.4.0", latestVersion: "0.5.0")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let appManager = FakeRunningAppManager()
+
+        let updater = OmuxSelfUpdater(
+            fileManager: .default,
+            appManager: appManager,
+            openApplication: { _ in
+                appManager.apps = [OmuxRunningApplication(processIdentifier: 456)]
+                return true
+            },
+            sleep: { _ in },
+            relaunchTimeoutSeconds: 0.1,
+            relaunchStabilitySeconds: 0,
+            writeLine: { _ in },
+            readInputLine: { nil }
+        )
+
+        try updater.runHelper(manifest: fixture.manifest)
+
+        XCTAssertEqual(bundleVersion(at: fixture.targetAppURL), "0.5.0")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.backupAppURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.stagingRoot.path))
+    }
+
+    func testUpdateHelperRollsBackWhenRelaunchFails() throws {
+        let fixture = try makeHelperInstallFixture(currentVersion: "0.4.0", latestVersion: "0.5.0")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let appManager = FakeRunningAppManager()
+
+        let updater = OmuxSelfUpdater(
+            fileManager: .default,
+            appManager: appManager,
+            openApplication: { _ in false },
+            sleep: { _ in },
+            relaunchTimeoutSeconds: 0.1,
+            relaunchStabilitySeconds: 0,
+            writeLine: { _ in },
+            readInputLine: { nil }
+        )
+
+        XCTAssertThrowsError(try updater.runHelper(manifest: fixture.manifest)) { error in
+            XCTAssertEqual(
+                error as? OmuxSelfUpdater.UpdateError,
+                .appRelaunchFailed("Launch Services rejected \(fixture.targetAppURL.path)")
+            )
+        }
+        XCTAssertEqual(bundleVersion(at: fixture.targetAppURL), "0.4.0")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.backupAppURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.stagingRoot.path))
+    }
+
     private func makeUpdateFixture(
         currentVersion: String,
         latestVersion: String
@@ -218,6 +271,42 @@ final class OmuxCLITests: XCTestCase {
         return (root, homeURL, tempURL, executableURL, installedAppURL, provider, release)
     }
 
+    private func makeHelperInstallFixture(
+        currentVersion: String,
+        latestVersion: String
+    ) throws -> (
+        root: URL,
+        stagingRoot: URL,
+        targetAppURL: URL,
+        backupAppURL: URL,
+        manifest: OmuxUpdateManifest
+    ) {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let stagingRoot = root.appendingPathComponent("staging", isDirectory: true)
+        let stagedAppURL = stagingRoot.appendingPathComponent("unpacked/OpenMUX.app", isDirectory: true)
+        let helperURL = stagingRoot.appendingPathComponent("helper", isDirectory: true)
+        let targetAppURL = root.appendingPathComponent("Installed/OpenMUX.app", isDirectory: true)
+        let backupAppURL = helperURL.appendingPathComponent("OpenMUX.app.backup", isDirectory: true)
+        try FileManager.default.createDirectory(at: stagedAppURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: targetAppURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: helperURL, withIntermediateDirectories: true)
+        try writeInfoPlist(version: currentVersion, to: targetAppURL)
+        try writeInfoPlist(version: latestVersion, to: stagedAppURL)
+
+        let manifest = OmuxUpdateManifest(
+            stagedAppPath: stagedAppURL.path,
+            targetAppPath: targetAppURL.path,
+            backupAppPath: backupAppURL.path,
+            logPath: helperURL.appendingPathComponent("update.log", isDirectory: false).path,
+            stagingRootPath: stagingRoot.path,
+            bundleIdentifier: "dev.fingergun.omux",
+            version: latestVersion,
+            reopenAfterInstall: true,
+            terminationTimeoutSeconds: 0.1
+        )
+        return (root, stagingRoot, targetAppURL, backupAppURL, manifest)
+    }
+
     private func writeInfoPlist(version: String, to appURL: URL) throws {
         let contentsURL = appURL.appendingPathComponent("Contents", isDirectory: true)
         try FileManager.default.createDirectory(at: contentsURL, withIntermediateDirectories: true)
@@ -226,6 +315,13 @@ final class OmuxCLITests: XCTestCase {
             "CFBundleShortVersionString": version,
         ]
         (plist as NSDictionary).write(to: contentsURL.appendingPathComponent("Info.plist"), atomically: true)
+    }
+
+    private func bundleVersion(at appURL: URL) -> String? {
+        let infoURL = appURL
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Info.plist", isDirectory: false)
+        return (NSDictionary(contentsOf: infoURL) as? [String: Any])?["CFBundleShortVersionString"] as? String
     }
 
     private func runDitto(arguments: [String]) throws {
