@@ -1,4 +1,4 @@
-.PHONY: help setup build-ghostty build test verify smoke smoke-packaged-release import-themes publish-unsigned package-release uninstall-local dev app cli-help
+.PHONY: help setup build-ghostty build test verify smoke smoke-packaged-release import-themes publish-unsigned package-release tag-release uninstall-local dev app cli-help
 
 help:
 	@printf "OpenMUX development commands\n\n"
@@ -12,6 +12,7 @@ help:
 	@printf "  make import-themes Import selected iTerm2 Color Schemes into bundled themes\n"
 	@printf "  make publish-unsigned Build dist/OpenMUX.app (unsigned)\n"
 	@printf "  make package-release Build GitHub Release assets under dist/release/ using VERSION\n"
+	@printf "  make tag-release     Create and push v$$(cat VERSION) from committed VERSION/CHANGELOG\n"
 	@printf "  make uninstall-local Remove local OpenMUX installs and user data (prompts first)\n"
 	@printf "  make dev           Launch OpenMUXApp\n"
 	@printf "  make app           Launch OpenMUXApp\n"
@@ -44,6 +45,9 @@ publish-unsigned:
 
 package-release:
 	./Scripts/package-release.sh
+
+tag-release:
+	./Scripts/tag-release.sh
 
 uninstall-local:
 	./Scripts/uninstall-local.sh
