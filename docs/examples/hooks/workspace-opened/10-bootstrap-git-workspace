@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Create a useful starter layout for Git repositories:
+# - focused/original pane: git status
+# - lower-left pane: compact recent commit log
+# - lower-right pane: project files
+#
+# This is intentionally read-only. It gives new workspaces useful context
+# without starting servers, package managers, or project-specific processes.
+
+if ! command -v jq >/dev/null 2>&1; then
+  exit 0
+fi
+
+event="$(cat)"
+workspace_id="$(printf '%s' "$event" | jq -r '.workspaceID // empty')"
+workspace_path="$(printf '%s' "$event" | jq -r '.payload.path // empty')"
+
+if [ -z "$workspace_id" ] || [ -z "$workspace_path" ] || [ ! -d "$workspace_path/.git" ]; then
+  exit 0
+fi
+
+lower_pane_id="$(
+  omux split --workspace "$workspace_id" down \
+    | jq -r '.created.paneID // empty'
+)"
+
+if [ -z "$lower_pane_id" ]; then
+  exit 0
+fi
+
+right_pane_id="$(
+  omux split --pane "$lower_pane_id" right \
+    | jq -r '.created.paneID // empty'
+)"
+
+omux run --workspace "$workspace_id" -- "cd $(printf '%q' "$workspace_path") && git status --short --branch" >/dev/null
+omux run --pane "$lower_pane_id" -- "cd $(printf '%q' "$workspace_path") && git log --oneline --decorate -12" >/dev/null
+
+if [ -n "$right_pane_id" ]; then
+  omux run --pane "$right_pane_id" -- "cd $(printf '%q' "$workspace_path") && find . -maxdepth 2 -type f | sed 's#^./##' | sort | head -80" >/dev/null
+fi

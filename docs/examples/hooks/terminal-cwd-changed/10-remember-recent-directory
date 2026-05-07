@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Maintain a small recent-directory list from live pane cwd changes.
+# Useful for shell pickers, fuzzy openers, or your own dotfile integrations.
+
+if ! command -v jq >/dev/null 2>&1; then
+  exit 0
+fi
+
+event="$(cat)"
+path="$(printf '%s' "$event" | jq -r '.payload.path // empty')"
+
+if [ -z "$path" ] || [ ! -d "$path" ]; then
+  exit 0
+fi
+
+state_dir="${OMUX_STATE_DIR:-$HOME/.omux}"
+recent_file="$state_dir/recent-directories"
+tmp_file="${recent_file}.$$"
+
+mkdir -p "$state_dir"
+
+{
+  printf '%s\n' "$path"
+  if [ -f "$recent_file" ]; then
+    grep -Fvx "$path" "$recent_file" || true
+  fi
+} | awk 'NF && !seen[$0]++' | head -50 > "$tmp_file"
+
+mv "$tmp_file" "$recent_file"

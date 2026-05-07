@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Open Command-clicked local paths in a macOS editor app.
+# Set OMUX_EDITOR_APP to override the default:
+# OMUX_EDITOR_APP="Zed"
+# OMUX_EDITOR_APP="Visual Studio Code"
+
+if ! command -v jq >/dev/null 2>&1; then
+  exit 0
+fi
+
+event="$(cat)"
+resolved_path="$(printf '%s' "$event" | jq -r '.payload.resolvedPath // empty')"
+
+if [ -z "$resolved_path" ]; then
+  exit 0
+fi
+
+if [ ! -e "$resolved_path" ]; then
+  omux notify "Path not found" "$resolved_path" >/dev/null
+  exit 0
+fi
+
+editor_app="${OMUX_EDITOR_APP:-Visual Studio Code}"
+open -a "$editor_app" "$resolved_path"

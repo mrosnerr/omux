@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Notify when a command that took a while has finished.
+# Override the threshold with OMUX_LONG_COMMAND_SECONDS, for example:
+# OMUX_LONG_COMMAND_SECONDS=120
+
+if ! command -v jq >/dev/null 2>&1; then
+  exit 0
+fi
+
+event="$(cat)"
+duration_ns="$(printf '%s' "$event" | jq -r '(.payload.durationNanoseconds // 0) | floor')"
+threshold_seconds="${OMUX_LONG_COMMAND_SECONDS:-60}"
+threshold_ns=$((threshold_seconds * 1000000000))
+
+duration_int="$duration_ns"
+if [ "$duration_int" -lt "$threshold_ns" ]; then
+  exit 0
+fi
+
+exit_code="$(printf '%s' "$event" | jq -r '.payload.exitCode // empty')"
+command_text="$(printf '%s' "$event" | jq -r '.payload.command // "command"')"
+elapsed_seconds=$((duration_int / 1000000000))
+
+short_command="$command_text"
+if [ "${#short_command}" -gt 90 ]; then
+  short_command="${short_command:0:87}..."
+fi
+
+if [ -n "$exit_code" ] && [ "$exit_code" != "0" ]; then
+  omux notify "Long command failed" "${elapsed_seconds}s, exit ${exit_code}: ${short_command}" >/dev/null
+else
+  omux notify "Long command finished" "${elapsed_seconds}s: ${short_command}" >/dev/null
+fi

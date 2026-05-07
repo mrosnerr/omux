@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Show a native OpenMUX notification when a command exits nonzero.
+# The notification is intentionally short; command output can contain secrets.
+
+if ! command -v jq >/dev/null 2>&1; then
+  exit 0
+fi
+
+event="$(cat)"
+exit_code="$(printf '%s' "$event" | jq -r '.payload.exitCode // empty')"
+
+if [ -z "$exit_code" ] || [ "$exit_code" = "0" ]; then
+  exit 0
+fi
+
+command_text="$(printf '%s' "$event" | jq -r '.payload.command // "command"')"
+cwd="$(printf '%s' "$event" | jq -r '.payload.cwd // empty')"
+
+short_command="$command_text"
+if [ "${#short_command}" -gt 90 ]; then
+  short_command="${short_command:0:87}..."
+fi
+
+body="exit ${exit_code}: ${short_command}"
+if [ -n "$cwd" ]; then
+  body="${body} (${cwd})"
+fi
+
+omux notify "Command failed" "$body" >/dev/null

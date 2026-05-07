@@ -247,6 +247,8 @@ Hooks are stable OpenMUX contracts, not implementation leaks:
 
 ## Examples
 
+For installable scripts users can copy directly into `~/.omux/hooks/`, see the [hook examples library](./examples/hooks/).
+
 ### Bootstrap a workspace layout
 
 This hook creates a default workspace layout when a workspace opens: split down, split the lower pane right, then run `pnpm dev` in the lower-left pane.
