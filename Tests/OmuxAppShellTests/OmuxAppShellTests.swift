@@ -618,10 +618,117 @@ final class OmuxAppShellTests: XCTestCase {
             canDeleteWorkspace: false,
             updateAvailability: OpenMUXUpdateAvailability(version: "0.5.0"),
             onMoveWorkspace: { _, _ in },
+            onToggleWorkspaceExpansion: { _ in },
             onSelectPane: { _ in }
         )
 
         XCTAssertEqual(sidebar.updateNoticeTextForTesting, "New version 0.5.0 run: omux update")
+    }
+
+    @MainActor
+    func testSidebarScrollsWorkspaceListAboveUpdateNotice() throws {
+        let sidebar = WorkspaceSidebarView(frame: NSRect(x: 0, y: 0, width: 224, height: 180))
+        let items = (0..<16).flatMap { index in
+            [
+                SidebarItem(
+                    kind: .workspace,
+                    identifier: "workspace-\(index)",
+                    icon: nil,
+                    progress: nil,
+                    title: "Workspace \(index)",
+                    subtitle: nil,
+                    isActive: index == 0,
+                    isExpanded: true,
+                    action: .workspace(WorkspaceID(rawValue: "workspace-\(index)")),
+                    contextMenuProvider: nil
+                ),
+                SidebarItem(
+                    kind: .terminal,
+                    identifier: "pane-\(index)",
+                    icon: nil,
+                    progress: nil,
+                    title: "Pane \(index)",
+                    subtitle: "~/project-\(index)",
+                    isActive: false,
+                    action: .pane(PaneID(rawValue: "pane-\(index)")),
+                    contextMenuProvider: nil
+                ),
+            ]
+        }
+
+        sidebar.render(
+            workspaceItems: items,
+            theme: .defaultTheme,
+            onSelectWorkspace: { _ in },
+            onCreateWorkspace: {},
+            onDeleteWorkspace: {},
+            canDeleteWorkspace: true,
+            updateAvailability: OpenMUXUpdateAvailability(version: "0.5.0"),
+            onMoveWorkspace: { _, _ in },
+            onToggleWorkspaceExpansion: { _ in },
+            onSelectPane: { _ in }
+        )
+        sidebar.layoutSubtreeIfNeeded()
+
+        let scrollView = try XCTUnwrap(findView(ofType: NSScrollView.self, in: sidebar))
+        let noticeLabel = try XCTUnwrap(findLabelView(withString: "New version 0.5.0", in: sidebar))
+        let noticeView = try XCTUnwrap(noticeLabel.superview)
+        let scrollFrame = scrollView.convert(scrollView.bounds, to: sidebar)
+        let noticeFrame = noticeView.convert(noticeView.bounds, to: sidebar)
+
+        XCTAssertLessThanOrEqual(scrollFrame.maxY, noticeFrame.minY)
+        XCTAssertEqual(sidebar.updateNoticeTextForTesting, "New version 0.5.0 run: omux update")
+    }
+
+    @MainActor
+    func testSidebarPinsShortWorkspaceListToTopOfScrollArea() throws {
+        let sidebar = WorkspaceSidebarView(frame: NSRect(x: 0, y: 0, width: 224, height: 780))
+        let items = [
+            SidebarItem(
+                kind: .workspace,
+                identifier: "workspace-1",
+                icon: nil,
+                progress: nil,
+                title: "Workspace 1",
+                subtitle: nil,
+                isActive: true,
+                isExpanded: true,
+                action: .workspace(WorkspaceID(rawValue: "workspace-1")),
+                contextMenuProvider: nil
+            ),
+            SidebarItem(
+                kind: .terminal,
+                identifier: "pane-1",
+                icon: nil,
+                progress: nil,
+                title: "Pane 1",
+                subtitle: "~/project",
+                isActive: false,
+                action: .pane(PaneID(rawValue: "pane-1")),
+                contextMenuProvider: nil
+            ),
+        ]
+
+        sidebar.render(
+            workspaceItems: items,
+            theme: .defaultTheme,
+            onSelectWorkspace: { _ in },
+            onCreateWorkspace: {},
+            onDeleteWorkspace: {},
+            canDeleteWorkspace: true,
+            updateAvailability: nil,
+            onMoveWorkspace: { _, _ in },
+            onToggleWorkspaceExpansion: { _ in },
+            onSelectPane: { _ in }
+        )
+        sidebar.layoutSubtreeIfNeeded()
+
+        let scrollView = try XCTUnwrap(findView(ofType: NSScrollView.self, in: sidebar))
+        let titleLabel = try XCTUnwrap(findLabelView(withString: "WORKSPACES · 1", in: sidebar))
+        let scrollFrame = scrollView.convert(scrollView.bounds, to: sidebar)
+        let titleFrame = titleLabel.convert(titleLabel.bounds, to: sidebar)
+
+        XCTAssertLessThanOrEqual(abs(titleFrame.minY - scrollFrame.minY), 4)
     }
 
     @MainActor
@@ -2297,6 +2404,47 @@ final class OmuxAppShellTests: XCTestCase {
 
         XCTAssertTrue(findLabel(withString: "WORKSPACES · 2", in: sidebar))
         XCTAssertGreaterThanOrEqual(findViews(ofType: SidebarItemButton.self, in: sidebar).count, 2)
+    }
+
+    @MainActor
+    func testWorkspaceSidebarCollapseHidesPaneRowsUntilWorkspaceFocus() throws {
+        let controller = WorkspaceController(
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
+            hookRunner: ExternalHookRunner()
+        )
+
+        let firstWorkspace = try controller.openWorkspace(at: "/tmp/sidebar-collapse-first")
+        _ = try controller.renameWorkspace(firstWorkspace.id, to: "First")
+        let secondWorkspace = try controller.openWorkspace(at: "/tmp/sidebar-collapse-second")
+        _ = try controller.renameWorkspace(secondWorkspace.id, to: "Second")
+        let windowController = WorkspaceWindowController(
+            workspace: try XCTUnwrap(controller.activeWorkspace()),
+            controller: controller
+        )
+        let window = try XCTUnwrap(windowController.window)
+        let rootView = try XCTUnwrap(window.contentViewController?.view)
+        let sidebar = try XCTUnwrap(findView(ofType: WorkspaceSidebarView.self, in: rootView))
+
+        rootView.layoutSubtreeIfNeeded()
+        XCTAssertTrue(findLabel(withString: "/tmp/sidebar-collapse-first", in: sidebar))
+
+        let firstLabel = try XCTUnwrap(findLabelView(withString: "First", in: sidebar))
+        let firstButton = try XCTUnwrap(findAncestor(ofType: SidebarItemButton.self, for: firstLabel))
+        let collapseItem = try XCTUnwrap(firstButton.menu?.items.first { $0.title == "Collapse Workspace Panes" })
+        XCTAssertTrue(NSApp.sendAction(collapseItem.action!, to: collapseItem.target, from: collapseItem))
+        rootView.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(findLabel(withString: "First", in: sidebar))
+        XCTAssertTrue(findLabel(withString: "Second", in: sidebar))
+        XCTAssertFalse(findLabel(withString: "/tmp/sidebar-collapse-first", in: sidebar))
+        XCTAssertTrue(findLabel(withString: "/tmp/sidebar-collapse-second", in: sidebar))
+
+        let restoredWorkspace = try XCTUnwrap(controller.restore(workspaceID: firstWorkspace.id))
+        windowController.update(workspace: restoredWorkspace)
+        rootView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(controller.activeWorkspace()?.id, firstWorkspace.id)
+        XCTAssertTrue(findLabel(withString: "/tmp/sidebar-collapse-first", in: sidebar))
     }
 
     @MainActor

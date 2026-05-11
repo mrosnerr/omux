@@ -153,6 +153,7 @@ final class WorkspaceShellViewController: NSViewController {
     private var terminalIconRefreshTimer: Timer?
     private var renderedIconKindByPaneID: [PaneID: OmuxSemanticIcon.Kind] = [:]
     private var commandPaletteView: CommandPaletteView?
+    private var collapsedWorkspaceIDs = Set<WorkspaceID>()
 
     var themeCommitHandler: ((String) -> Void)?
 
@@ -268,11 +269,17 @@ final class WorkspaceShellViewController: NSViewController {
             workspace: workspace
         )
         invalidateIconCacheForChangedPaths(from: currentWorkspace, to: workspace)
+        let allWorkspaces = controller.allWorkspaces()
+        let workspaceIDs = Set(allWorkspaces.map(\.id))
+        collapsedWorkspaceIDs = collapsedWorkspaceIDs.intersection(workspaceIDs)
+        if previousWorkspaceID != nil, previousWorkspaceID != workspace.id {
+            collapsedWorkspaceIDs.remove(workspace.id)
+        }
         currentWorkspace = workspace
         apply(theme: currentTheme)
 
         let workspaceItems = makeWorkspaceSidebarItems(
-            workspaces: controller.allWorkspaces(),
+            workspaces: allWorkspaces,
             activeWorkspace: workspace
         )
         sidebarView.render(
@@ -291,6 +298,9 @@ final class WorkspaceShellViewController: NSViewController {
             updateAvailability: controller.currentUpdateAvailability(),
             onMoveWorkspace: { [weak self] workspaceID, targetIndex in
                 _ = self?.controller.moveWorkspace(workspaceID, toDisplayIndex: targetIndex)
+            },
+            onToggleWorkspaceExpansion: { [weak self] workspaceID in
+                self?.toggleWorkspaceExpansion(workspaceID)
             },
             onSelectPane: { [weak self] paneID in
                 _ = self?.controller.focus(paneID: paneID)
@@ -460,6 +470,7 @@ final class WorkspaceShellViewController: NSViewController {
 
         return workspaces.flatMap { workspace in
             let panes = workspace.tabs.flatMap(\.panes)
+            let isExpanded = collapsedWorkspaceIDs.contains(workspace.id) == false
             let workspaceItem = SidebarItem(
                 kind: .workspace,
                 identifier: workspace.id.rawValue,
@@ -476,6 +487,7 @@ final class WorkspaceShellViewController: NSViewController {
                 title: workspace.name,
                 subtitle: nil,
                 isActive: workspace.id == activeWorkspace.id,
+                isExpanded: isExpanded,
                 action: .workspace(workspace.id),
                 contextMenuProvider: { [weak self] in
                     guard let self else { return NSMenu() }
@@ -483,7 +495,7 @@ final class WorkspaceShellViewController: NSViewController {
                 }
             )
 
-            let terminalItems = workspace.tabs
+            let terminalItems = isExpanded ? workspace.tabs
                 .flatMap { tab in
                     tab.panes.map { pane -> SidebarItem in
                         let paneIcon = iconResolver.icon(for: pane, terminalText: terminalText(pane))
@@ -497,6 +509,7 @@ final class WorkspaceShellViewController: NSViewController {
                             title: metadata.title,
                             subtitle: metadata.subtitle,
                             isActive: workspace.id == activeWorkspace.id && pane.id == activeWorkspace.focusedPane?.id,
+                            isExpanded: nil,
                             action: .pane(pane.id),
                             contextMenuProvider: { [weak self] in
                                 guard let self, let paneStack else { return NSMenu() }
@@ -508,9 +521,21 @@ final class WorkspaceShellViewController: NSViewController {
                             }
                         )
                     }
-                }
+                } : []
 
             return [workspaceItem] + terminalItems
+        }
+    }
+
+    private func toggleWorkspaceExpansion(_ workspaceID: WorkspaceID) {
+        if collapsedWorkspaceIDs.contains(workspaceID) {
+            collapsedWorkspaceIDs.remove(workspaceID)
+        } else {
+            collapsedWorkspaceIDs.insert(workspaceID)
+        }
+
+        if let workspace = currentWorkspace {
+            update(workspace: workspace)
         }
     }
 
@@ -717,6 +742,12 @@ final class WorkspaceShellViewController: NSViewController {
         let menu = NSMenu()
         menu.addItem(withTitle: "Rename…", action: nil, keyEquivalent: "").onSelect { [weak self] in
             self?.presentRenameWorkspacePrompt(workspaceID: workspace.id)
+        }
+        let expansionTitle = collapsedWorkspaceIDs.contains(workspace.id)
+            ? "Expand Workspace Panes"
+            : "Collapse Workspace Panes"
+        menu.addItem(withTitle: expansionTitle, action: nil, keyEquivalent: "").onSelect { [weak self] in
+            self?.toggleWorkspaceExpansion(workspace.id)
         }
         if workspace.hasCustomName {
             menu.addItem(withTitle: "Remove Custom Name", action: nil, keyEquivalent: "").onSelect { [weak self] in
@@ -1183,8 +1214,33 @@ struct SidebarItem {
     let title: String
     let subtitle: String?
     let isActive: Bool
+    let isExpanded: Bool?
     let action: Action
     let contextMenuProvider: (() -> NSMenu)?
+
+    init(
+        kind: Kind,
+        identifier: String,
+        icon: OmuxRenderedIcon?,
+        progress: PaneProgress?,
+        title: String,
+        subtitle: String?,
+        isActive: Bool,
+        isExpanded: Bool? = nil,
+        action: Action,
+        contextMenuProvider: (() -> NSMenu)?
+    ) {
+        self.kind = kind
+        self.identifier = identifier
+        self.icon = icon
+        self.progress = progress
+        self.title = title
+        self.subtitle = subtitle
+        self.isActive = isActive
+        self.isExpanded = isExpanded
+        self.action = action
+        self.contextMenuProvider = contextMenuProvider
+    }
 
     var workspaceID: WorkspaceID? {
         guard case .workspace(let workspaceID) = action else {
@@ -1217,7 +1273,7 @@ private struct SidebarSectionAccessory {
 @MainActor
 final class WorkspaceSidebarView: NSView {
     private let workspacesSection = WorkspaceSidebarSectionView()
-    private let spacer = NSView()
+    private let scrollView = NSScrollView()
     private let updateNoticeView = SidebarUpdateNoticeView()
     private let container = NSStackView()
 
@@ -1228,12 +1284,23 @@ final class WorkspaceSidebarView: NSView {
 
         container.orientation = .vertical
         container.alignment = .leading
+        container.distribution = .fill
         container.spacing = 0
         container.translatesAutoresizingMaskIntoConstraints = false
 
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.scrollerStyle = .overlay
+        scrollView.documentView = workspacesSection
+        scrollView.setContentHuggingPriority(.defaultLow, for: .vertical)
+        scrollView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+
         addSubview(container)
-        container.addArrangedSubview(workspacesSection)
-        container.addArrangedSubview(spacer)
+        container.addArrangedSubview(scrollView)
         container.addArrangedSubview(updateNoticeView)
         updateNoticeView.isHidden = true
 
@@ -1242,9 +1309,13 @@ final class WorkspaceSidebarView: NSView {
             container.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             container.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
             container.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
-            workspacesSection.widthAnchor.constraint(equalTo: container.widthAnchor),
-            spacer.widthAnchor.constraint(equalTo: container.widthAnchor),
+            scrollView.widthAnchor.constraint(equalTo: container.widthAnchor),
             updateNoticeView.widthAnchor.constraint(equalTo: container.widthAnchor),
+            workspacesSection.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
+            workspacesSection.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
+            workspacesSection.trailingAnchor.constraint(equalTo: scrollView.contentView.trailingAnchor),
+            workspacesSection.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+            workspacesSection.heightAnchor.constraint(greaterThanOrEqualTo: scrollView.contentView.heightAnchor),
         ])
     }
 
@@ -1272,6 +1343,7 @@ final class WorkspaceSidebarView: NSView {
         canDeleteWorkspace: Bool,
         updateAvailability: OpenMUXUpdateAvailability?,
         onMoveWorkspace: @escaping @MainActor (WorkspaceID, Int) -> Void,
+        onToggleWorkspaceExpansion: @escaping @MainActor (WorkspaceID) -> Void,
         onSelectPane: @escaping @MainActor (PaneID) -> Void
     ) {
         apply(theme: theme)
@@ -1295,6 +1367,7 @@ final class WorkspaceSidebarView: NSView {
                 ),
             ],
             onMoveWorkspace: onMoveWorkspace,
+            onToggleWorkspaceExpansion: onToggleWorkspaceExpansion,
             buttonHandler: { item in
                 switch item.action {
                 case .workspace(let workspaceID):
@@ -1455,6 +1528,7 @@ private final class WorkspaceSidebarSectionView: NSView {
         theme: WorkspaceShellTheme,
         accessories: [SidebarSectionAccessory],
         onMoveWorkspace: @escaping (WorkspaceID, Int) -> Void,
+        onToggleWorkspaceExpansion: @escaping (WorkspaceID) -> Void,
         buttonHandler: @escaping (SidebarItem) -> Void
     ) {
         titleLabel.stringValue = "\(title) · \(count)"
@@ -1498,6 +1572,11 @@ private final class WorkspaceSidebarSectionView: NSView {
             button.configure(item: item, theme: theme)
             button.onPress = {
                 buttonHandler(item)
+            }
+            button.onToggleExpansion = {
+                if let workspaceID = item.workspaceID {
+                    onToggleWorkspaceExpansion(workspaceID)
+                }
             }
             button.contextMenuProvider = item.contextMenuProvider
             if let workspaceID = item.workspaceID {
@@ -3085,6 +3164,7 @@ private class ChromePillButton: NSControl {
 @MainActor
 final class SidebarItemButton: NSView {
     var onPress: (() -> Void)?
+    var onToggleExpansion: (() -> Void)?
     var workspaceID: WorkspaceID?
     var onDragStarted: ((SidebarItemButton, NSEvent) -> Void)?
     var onDragMoved: ((SidebarItemButton, NSEvent) -> Void)?
@@ -3096,6 +3176,7 @@ final class SidebarItemButton: NSView {
     }
     private let titleField = NSTextField(labelWithString: "")
     private let subtitleField = NSTextField(labelWithString: "")
+    private let disclosureImageView = NSImageView()
     private let iconField = NSTextField(labelWithString: "")
     private let iconImageView = NSImageView()
     private let progressOrb = PaneProgressOrbView()
@@ -3105,6 +3186,7 @@ final class SidebarItemButton: NSView {
     private var iconSymbolImage: NSImage?
     private var iconSide = CGFloat(13)
     private var progress: PaneProgress?
+    private var showsDisclosure = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -3113,6 +3195,9 @@ final class SidebarItemButton: NSView {
 
         progressOrb.identifier = NSUserInterfaceItemIdentifier("sidebar-pane-progress")
         addSubview(progressOrb)
+
+        disclosureImageView.isHidden = true
+        addSubview(disclosureImageView)
 
         titleField.maximumNumberOfLines = 1
         titleField.lineBreakMode = .byTruncatingTail
@@ -3152,7 +3237,7 @@ final class SidebarItemButton: NSView {
         switch item.kind {
         case .workspace:
             titleField.font = .systemFont(ofSize: 13, weight: .semibold)
-            leadingInset = 12
+            leadingInset = 6
             subtitleField.font = .systemFont(ofSize: 11, weight: .regular)
         case .terminal:
             titleField.font = .systemFont(ofSize: 10, weight: .regular)
@@ -3166,6 +3251,12 @@ final class SidebarItemButton: NSView {
         renderedIcon = item.icon
         iconSymbolImage = item.icon?.symbolImage()
         iconSide = item.kind == .workspace ? 13 : 11
+        showsDisclosure = item.kind == .workspace && item.isExpanded != nil
+        let disclosureSymbol = item.isExpanded == false ? "chevron.right" : "chevron.down"
+        disclosureImageView.symbolConfiguration = .init(pointSize: 9, weight: .semibold)
+        disclosureImageView.image = NSImage(systemSymbolName: disclosureSymbol, accessibilityDescription: nil)
+        disclosureImageView.isHidden = !showsDisclosure
+        disclosureImageView.setAccessibilityLabel(item.isExpanded == false ? "Expand workspace panes" : "Collapse workspace panes")
         iconField.stringValue = item.icon?.text ?? ""
         iconField.font = item.icon?.font ?? .systemFont(ofSize: item.kind == .workspace ? 13 : 11, weight: .medium)
         iconField.isHidden = item.icon == nil || iconSymbolImage != nil
@@ -3187,6 +3278,7 @@ final class SidebarItemButton: NSView {
         } ?? titleField.textColor
         iconField.textColor = iconColor
         iconImageView.contentTintColor = iconColor
+        disclosureImageView.contentTintColor = item.isActive ? theme.shell.selectedText : theme.shell.textMuted
         subtitleField.stringValue = item.subtitle ?? ""
         subtitleField.textColor = theme.shell.textMuted
         subtitleField.isHidden = item.subtitle == nil
@@ -3220,6 +3312,18 @@ final class SidebarItemButton: NSView {
             )
         } else {
             progressOrb.frame = .zero
+        }
+        if showsDisclosure {
+            let disclosureSide: CGFloat = 11
+            disclosureImageView.frame = NSRect(
+                x: textX,
+                y: round((bounds.height - disclosureSide) / 2),
+                width: disclosureSide,
+                height: disclosureSide
+            )
+            textX = disclosureImageView.frame.maxX + 4
+        } else {
+            disclosureImageView.frame = .zero
         }
         if let renderedIcon {
             if iconSymbolImage == nil {
@@ -3282,6 +3386,12 @@ final class SidebarItemButton: NSView {
     override var mouseDownCanMoveWindow: Bool { false }
 
     override func mouseDown(with event: NSEvent) {
+        if showsDisclosure,
+           disclosureImageView.frame.insetBy(dx: -5, dy: -5).contains(convert(event.locationInWindow, from: nil)) {
+            onToggleExpansion?()
+            return
+        }
+
         guard onDragStarted != nil || onDragMoved != nil || onDragEnded != nil else {
             onPress?()
             return
