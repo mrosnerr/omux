@@ -433,6 +433,16 @@ public enum OpenMUXCLICommandCatalog {
             paletteExecution: .unavailable("Requires a target and text")
         ),
         OpenMUXCLICommandSpec(
+            id: "omux.pane-status",
+            usage: "omux pane-status --session <id>|--pane <id>|--tab <id>|--workspace <id>|--focused --state working|indeterminate|error|needs-input|idle|clear [--value <0-100>] [--label <text>] [--message <text>] [--source <name>]",
+            title: "omux: Pane Status",
+            summary: "Update a terminal pane status indicator",
+            aliases: ["pane status", "status indicator"],
+            requiresArguments: true,
+            hasSafeDefaultTarget: false,
+            paletteExecution: .unavailable("Requires a target and status")
+        ),
+        OpenMUXCLICommandSpec(
             id: "omux.notify",
             usage: "omux notify <title> [body]",
             title: "omux: Send Notification",
