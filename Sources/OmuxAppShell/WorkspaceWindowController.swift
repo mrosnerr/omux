@@ -125,6 +125,11 @@ final class WorkspaceWindowController: NSWindowController {
     func presentCommandPalette(initialQuery: String, keyBindings: OpenMUXKeyBindingRegistry) {
         rootViewController.presentCommandPalette(initialQuery: initialQuery, keyBindings: keyBindings)
     }
+
+    var themeCommitHandler: ((String) -> Void)? {
+        get { rootViewController.themeCommitHandler }
+        set { rootViewController.themeCommitHandler = newValue }
+    }
 }
 
 @MainActor
@@ -147,6 +152,8 @@ final class WorkspaceShellViewController: NSViewController {
     private var terminalIconRefreshTimer: Timer?
     private var renderedIconKindByPaneID: [PaneID: OmuxSemanticIcon.Kind] = [:]
     private var commandPaletteView: CommandPaletteView?
+
+    var themeCommitHandler: ((String) -> Void)?
 
     init(
         controller: WorkspaceController,
@@ -631,14 +638,43 @@ final class WorkspaceShellViewController: NSViewController {
                 )
             }
         }
+
+        var themeBeforeSubPalette: WorkspaceShellTheme? = nil
+
         paletteView.invokeResult = { [weak self] result in
             guard let self else { return .failed("Window is unavailable") }
             if result.invocationTarget == .action(.sidebarToggle) {
                 toggleSidebarVisibility()
                 return .invoked
             }
+            if result.invocationTarget == .themeSwitch {
+                themeBeforeSubPalette = currentTheme
+                paletteView.enterThemeSubPalette(originalTheme: currentTheme)
+                return .inert
+            }
             return controller.invokeCommandPaletteResult(result)
         }
+
+        paletteView.subPalettePreviewHandler = { [weak self] identifier in
+            guard let self else { return }
+            if let theme = WorkspaceShellTheme.named(identifier) {
+                updateTheme(theme)
+            }
+        }
+
+        paletteView.subPaletteCommitHandler = { [weak self] identifier in
+            themeBeforeSubPalette = nil
+            self?.themeCommitHandler?(identifier)
+        }
+
+        paletteView.subPaletteRevertHandler = { [weak self] in
+            guard let self else { return }
+            if let saved = themeBeforeSubPalette {
+                updateTheme(saved)
+                themeBeforeSubPalette = nil
+            }
+        }
+
         paletteView.dismissHandler = { [weak self, weak paletteView] in
             if self?.commandPaletteView === paletteView {
                 self?.commandPaletteView = nil

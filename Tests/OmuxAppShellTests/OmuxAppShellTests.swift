@@ -414,9 +414,14 @@ final class OmuxAppShellTests: XCTestCase {
                 && descriptor.command.target == "omux.split"
         })
         let cliTargets = Set(descriptors.compactMap { descriptor in
-            descriptor.command.kind == .builtin ? descriptor.command.target : nil
+            descriptor.category == .cli && descriptor.command.kind == .builtin ? descriptor.command.target : nil
         })
         XCTAssertEqual(cliTargets, Set(OpenMUXCLICommandCatalog.commands.map(\.id)))
+        XCTAssertTrue(descriptors.contains { descriptor in
+            descriptor.id == "builtin:switch-theme"
+                && descriptor.command.kind == .builtin
+                && descriptor.command.target == "theme.switch"
+        })
         XCTAssertEqual(Set(descriptors.map(\.id)).count, descriptors.count)
     }
 

@@ -107,9 +107,9 @@ pane-tab.create          pane-tab.close
 pane-tab.next            pane-tab.previous
 ```
 
-**`"builtin"`** — a generated `omux` CLI command from `OpenMUXCLICommandCatalog`. Add CLI commands there instead of creating a JSON descriptor or local allow-list.
+**`"builtin"`** — either the app-owned `theme.switch` target, or a generated `omux` CLI command from `OpenMUXCLICommandCatalog`. Add CLI commands there instead of creating a JSON descriptor or local allow-list.
 
-Commands that map safely to the current workspace can be invoked from the palette. Commands that require arguments, stream output, or print terminal output are still searchable, but disabled with a reason.
+CLI commands are searchable across the full catalog. Commands without required arguments are submitted to the focused terminal. Commands that require arguments insert an editable command template into the focused terminal so you can fill placeholders before running them.
 
 ### `category` and icons
 
@@ -166,6 +166,8 @@ A non-CLI action appears in the results only when:
 - `isPaletteVisible` is `true`: either `requiresArguments == false`, or `hasSafeDefaultTarget == true`
 
 CLI commands are always searchable so the palette covers the full `omux` surface. They are enabled when a focused terminal is available. Commands without required arguments are sent and submitted there; commands with required arguments are inserted as editable text so the user can fill placeholders before running them.
+
+Disabled commands are shown greyed-out with the `disabledReason` text. If the user tries to invoke a disabled command, the reason is shown in the search field and the palette stays open.
 
 ---
 
