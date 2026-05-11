@@ -4,6 +4,17 @@ OpenMUX release notes are committed here before tagging a release. Use `Scripts/
 
 
 
+
+## 0.13.0
+
+### Added
+
+- Added collapsible workspace sections in the sidebar so pane rows can be hidden or shown per workspace from the disclosure control or workspace context menu.
+
+### Changed
+
+- Changed the workspace sidebar to keep long workspace lists scrollable while leaving update notices visible.
+
 ## 0.12.0
 
 ### Added
