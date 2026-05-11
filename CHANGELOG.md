@@ -3,6 +3,28 @@
 OpenMUX release notes are committed here before tagging a release. Use `Scripts/check-changes-since-release.sh` to inspect changes since the latest `v*` tag, then use `Scripts/prepare-release.sh <version>` with a reviewed changelog body to prepare the next release.
 
 
+
+## 0.12.0
+
+### Added
+
+- Added a keyboard-first command palette: `Cmd+K` opens workspace search, and `Cmd+Shift+P` opens command search for OpenMUX actions and the shared `omux` command catalog.
+- Added a command-palette theme switcher with sub-palette navigation, live preview, and persisted theme selection.
+- Added `omux pane-status` and the `paneStatus` control-plane API so hooks, plugins, and scripts can mark panes as working, indeterminate, error, needs-input, idle, or clear.
+- Added pane status indicators in the app shell, including animated/colored orbs in pane chrome and sidebar rows.
+- Added `ui.panes.idle_status_clear` to configure when idle/completed pane status indicators are removed.
+- Added copy-pasteable hook examples for bootstrapping workspaces, notifications, pane status updates, recent-directory tracking, and activated-path opening.
+
+### Changed
+
+- Changed command and action metadata to use a shared CLI command catalog so `omux` help and the command palette stay aligned.
+- Changed hook documentation to show pane-status automation and the expanded examples directory.
+
+### Fixed
+
+- Fixed pane-tab drag splitting so drops split the intended child pane region and preserve existing grid layouts.
+- Fixed pane-tab title rendering so short titles are not unexpectedly middle-truncated.
+
 ## 0.11.0
 
 ### Added
