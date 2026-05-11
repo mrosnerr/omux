@@ -5,6 +5,18 @@ OpenMUX release notes are committed here before tagging a release. Use `Scripts/
 
 
 
+
+## 0.14.0
+
+### Changed
+
+- Changed the workspace command palette shortcut from `Cmd+K` to `Cmd+P`, while keeping `Cmd+Shift+P` for command search.
+- Changed custom keybinding overrides so rebinding an action automatically replaces that action's previous default chord.
+
+### Migration notes
+
+- If you prefer the previous workspace search shortcut, add `"cmd+k" = "command-palette.workspace"` under `[keys]` in your OpenMUX configuration.
+
 ## 0.13.0
 
 ### Added
