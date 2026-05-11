@@ -125,6 +125,16 @@ final class OmuxAppShellTests: XCTestCase {
             key: "b",
             modifiers: [.command]
         ) ?? false)
+        XCTAssertTrue(viewMenu?.items.containsShortcut(
+            title: "Command Palette",
+            key: "k",
+            modifiers: [.command]
+        ) ?? false)
+        XCTAssertTrue(viewMenu?.items.containsShortcut(
+            title: "Command Palette Commands",
+            key: "p",
+            modifiers: [.command, .shift]
+        ) ?? false)
         XCTAssertFalse(viewMenu?.items.containsShortcut(
             title: "New Pane",
             key: "t",
@@ -272,6 +282,202 @@ final class OmuxAppShellTests: XCTestCase {
         let withSplit = try XCTUnwrap(controller.splitFocusedPane())
         XCTAssertEqual(withSplit.focusedTab?.panes.count, 2)
         XCTAssertEqual(withSplit.focusedTab?.focusedPaneID, withSplit.focusedTab?.panes.last?.id)
+    }
+
+    func testCommandPaletteWorkspaceInvocationAndSearchAreReadOnly() throws {
+        let controller = WorkspaceController(
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
+            hookRunner: ExternalHookRunner()
+        )
+        var publishedEvents: [ControlPlaneEvent] = []
+        controller.onControlPlaneEvent = { publishedEvents.append($0) }
+
+        let first = try controller.openWorkspace(at: "/tmp/first")
+        let second = try controller.openWorkspace(at: "/tmp/second")
+        publishedEvents.removeAll()
+
+        let snapshot = controller.persistenceSnapshot(mode: .layoutOnly)
+        let workspaces = controller.commandPaletteWorkspaces()
+        let searchResults = CommandPaletteSearch.workspaceResults(query: "first", workspaces: workspaces)
+
+        XCTAssertEqual(snapshot, controller.persistenceSnapshot(mode: .layoutOnly))
+        XCTAssertTrue(publishedEvents.isEmpty)
+        XCTAssertEqual(searchResults.first?.invocationTarget, .workspace(first.id))
+
+        let firstResult = try XCTUnwrap(searchResults.first)
+        let invocation = controller.invokeCommandPaletteResult(firstResult)
+
+        XCTAssertEqual(invocation, .invoked)
+        XCTAssertEqual(controller.activeWorkspace()?.id, first.id)
+        XCTAssertEqual(publishedEvents.map(\.name), ["workspace.restored"])
+        publishedEvents.removeAll()
+
+        let activeResult = CommandPaletteResult(
+            id: "workspace:\(first.id.rawValue)",
+            title: first.name,
+            category: .workspace,
+            matchText: first.name,
+            invocationTarget: .workspace(first.id)
+        )
+        XCTAssertEqual(controller.invokeCommandPaletteResult(activeResult), .inert)
+        XCTAssertTrue(publishedEvents.isEmpty)
+
+        let missingResult = CommandPaletteResult(
+            id: "workspace:missing",
+            title: "Missing",
+            category: .workspace,
+            matchText: "Missing",
+            invocationTarget: .workspace(WorkspaceID(rawValue: "missing"))
+        )
+        XCTAssertEqual(controller.invokeCommandPaletteResult(missingResult), .failed("Workspace is no longer available"))
+        XCTAssertEqual(controller.activeWorkspace()?.id, first.id)
+        XCTAssertNotEqual(controller.activeWorkspace()?.id, second.id)
+    }
+
+    func testCommandPaletteCommandMetadataAndInvocation() throws {
+        let runtime = ActionEmittingGhosttyRuntime()
+        let controller = WorkspaceController(
+            bridge: GhosttyTerminalBridge(runtime: runtime),
+            hookRunner: ExternalHookRunner()
+        )
+        _ = try controller.openWorkspace(at: "/tmp")
+
+        let commands = CommandPaletteCommandCatalog.commands(controller: controller, keyBindings: .defaults)
+        let results = CommandPaletteSearch.commandResults(query: "split right", commands: commands)
+        let splitRight = try XCTUnwrap(results.first { $0.invocationTarget == .action(.paneSplitRight) })
+
+        XCTAssertEqual(splitRight.shortcutLabel, "⌘D")
+        XCTAssertEqual(splitRight.category, .action)
+        XCTAssertEqual(controller.invokeCommandPaletteResult(splitRight), .invoked)
+        XCTAssertEqual(controller.activeWorkspace()?.focusedTab?.panes.count, 2)
+
+        let disabled = CommandPaletteResult(
+            id: "disabled",
+            title: "Disabled",
+            category: .action,
+            matchText: "disabled",
+            isEnabled: false,
+            disabledReason: "No context",
+            invocationTarget: .action(.paneRemove)
+        )
+        XCTAssertEqual(controller.invokeCommandPaletteResult(disabled), .disabled("No context"))
+
+        let cliCommands = commands.filter { $0.category == .cli }
+        XCTAssertEqual(cliCommands.count, OpenMUXCLICommandCatalog.commands.count)
+        XCTAssertTrue(cliCommands.allSatisfy(\.isEnabled))
+
+        let cliVersion = try XCTUnwrap(CommandPaletteSearch.commandResults(query: "omux version", commands: commands).first {
+            $0.invocationTarget == .cliCommand("omux.version")
+        })
+        XCTAssertEqual(controller.invokeCommandPaletteResult(cliVersion), .invoked)
+        XCTAssertEqual(runtime.executedCommands, ["omux version"])
+
+        let cliWithArguments = try XCTUnwrap(CommandPaletteSearch.commandResults(query: "inactive opacity", commands: commands).first {
+            $0.invocationTarget == .cliCommand("omux.config.inactive-opacity")
+        })
+        XCTAssertEqual(controller.invokeCommandPaletteResult(cliWithArguments), .invoked)
+        XCTAssertEqual(runtime.executedCommands, ["omux version"])
+        XCTAssertEqual(runtime.currentInputText(), "omux config inactive-opacity <0.0-1.0>")
+    }
+
+    func testCommandPaletteShortcutLabelsUseConfiguredBindings() throws {
+        let controller = WorkspaceController(
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
+            hookRunner: ExternalHookRunner()
+        )
+        _ = try controller.openWorkspace(at: "/tmp")
+        let keyBindings = OpenMUXKeyBindingRegistry.effective(overrides: [
+            OpenMUXKeyBindingOverride(chord: try OpenMUXKeyChord(parsing: "cmd+d"), action: nil),
+            OpenMUXKeyBindingOverride(chord: try OpenMUXKeyChord(parsing: "cmd+shift+d"), action: .paneSplitRight),
+            OpenMUXKeyBindingOverride(chord: try OpenMUXKeyChord(parsing: "cmd+shift+w"), action: nil),
+        ])
+
+        let commands = CommandPaletteCommandCatalog.commands(controller: controller, keyBindings: keyBindings)
+        let splitRight = try XCTUnwrap(commands.first { $0.invocationTarget == .action(.paneSplitRight) })
+        let removePane = try XCTUnwrap(commands.first { $0.invocationTarget == .action(.paneRemove) })
+
+        XCTAssertEqual(splitRight.shortcutLabel, "⌘⇧D")
+        XCTAssertNil(removePane.shortcutLabel)
+    }
+
+    func testCommandPaletteCommandsLoadFromBundledDescriptors() throws {
+        let descriptors = CommandPaletteCommandDescriptorCatalog.bundledDescriptors()
+
+        XCTAssertTrue(descriptors.contains { descriptor in
+            descriptor.id == "action:pane.split-right"
+                && descriptor.command.kind == .action
+                && descriptor.command.target == "pane.split-right"
+        })
+        XCTAssertTrue(descriptors.contains { descriptor in
+            descriptor.id == "cli:omux.split"
+                && descriptor.command.kind == .builtin
+                && descriptor.command.target == "omux.split"
+        })
+        let cliTargets = Set(descriptors.compactMap { descriptor in
+            descriptor.command.kind == .builtin ? descriptor.command.target : nil
+        })
+        XCTAssertEqual(cliTargets, Set(OpenMUXCLICommandCatalog.commands.map(\.id)))
+        XCTAssertEqual(Set(descriptors.map(\.id)).count, descriptors.count)
+    }
+
+    func testCommandPaletteDescriptorValidationDropsDuplicatesAndUnsupportedTargets() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let first = root.appendingPathComponent("a-first.json")
+        let duplicate = root.appendingPathComponent("z-duplicate.json")
+        let invalid = root.appendingPathComponent("invalid.json")
+        try Data("""
+        {
+          "id": "action:pane.split-right",
+          "title": "Split Pane Right",
+          "category": "action",
+          "matchText": "split right",
+          "aliases": [],
+          "requiresArguments": false,
+          "hasSafeDefaultTarget": true,
+          "command": { "kind": "action", "target": "pane.split-right" }
+        }
+        """.utf8).write(to: first)
+        try Data("""
+        {
+          "id": "action:pane.split-right",
+          "title": "Duplicate",
+          "category": "action",
+          "matchText": "duplicate",
+          "aliases": [],
+          "requiresArguments": false,
+          "hasSafeDefaultTarget": true,
+          "command": { "kind": "action", "target": "pane.split-down" }
+        }
+        """.utf8).write(to: duplicate)
+        try Data("""
+        {
+          "id": "cli:unsupported",
+          "title": "Unsupported",
+          "category": "cli",
+          "matchText": "unsupported",
+          "aliases": [],
+          "requiresArguments": false,
+          "hasSafeDefaultTarget": true,
+          "command": { "kind": "builtin", "target": "unsupported.target" }
+        }
+        """.utf8).write(to: invalid)
+
+        let controller = WorkspaceController(
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
+            hookRunner: ExternalHookRunner()
+        )
+        _ = try controller.openWorkspace(at: "/tmp")
+        let descriptors = CommandPaletteCommandDescriptorCatalog.loadDescriptors(from: [duplicate, first, invalid])
+        let commands = CommandPaletteCommandCatalog.commands(
+            controller: controller,
+            keyBindings: .defaults,
+            descriptors: descriptors
+        )
+
+        XCTAssertEqual(commands.map(\.id), ["action:pane.split-right"])
+        XCTAssertEqual(commands.first?.invocationTarget, .action(.paneSplitRight))
     }
 
     func testTerminalTextActivationOpensMarkdownPreviewWhenPluginEnabled() throws {
@@ -4034,6 +4240,7 @@ private final class ActionEmittingGhosttyRuntime: GhosttyRuntime {
     var scrollbackBySurface: [String: String] = [:]
     var transcript = ""
     var sentTextCount = 0
+    private(set) var executedCommands: [String] = []
     private(set) var destroyedSurfaceIDs: [String] = []
     private(set) var terminalTextSnapshotCount = 0
     private(set) var clearedScreenAndScrollbackSurfaceIDs: [String] = []
@@ -4082,6 +4289,10 @@ private final class ActionEmittingGhosttyRuntime: GhosttyRuntime {
         inputBySurface[runtimeSurfaceID, default: ""].append(text)
     }
 
+    func currentInputText() -> String {
+        inputBySurface.values.joined()
+    }
+
     func handle(_ event: NormalizedKeyEvent, on runtimeSurfaceID: String) throws {
         guard sessions[runtimeSurfaceID] != nil else {
             throw TerminalBridgeError.runtimeAttachFailed(runtimeSurfaceID)
@@ -4093,6 +4304,7 @@ private final class ActionEmittingGhosttyRuntime: GhosttyRuntime {
 
         let command = inputBySurface[runtimeSurfaceID, default: ""]
         inputBySurface[runtimeSurfaceID] = ""
+        executedCommands.append(command.trimmingCharacters(in: .whitespacesAndNewlines))
         execute(command: command, on: runtimeSurfaceID)
     }
 

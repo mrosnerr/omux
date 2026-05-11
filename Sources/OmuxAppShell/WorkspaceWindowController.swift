@@ -121,6 +121,10 @@ final class WorkspaceWindowController: NSWindowController {
     func presentRenameWorkspacePrompt(workspaceID: WorkspaceID? = nil) {
         rootViewController.presentRenameWorkspacePrompt(workspaceID: workspaceID)
     }
+
+    func presentCommandPalette(initialQuery: String, keyBindings: OpenMUXKeyBindingRegistry) {
+        rootViewController.presentCommandPalette(initialQuery: initialQuery, keyBindings: keyBindings)
+    }
 }
 
 @MainActor
@@ -142,6 +146,7 @@ final class WorkspaceShellViewController: NSViewController {
     private var focusRestoreGeneration: UInt = 0
     private var terminalIconRefreshTimer: Timer?
     private var renderedIconKindByPaneID: [PaneID: OmuxSemanticIcon.Kind] = [:]
+    private var commandPaletteView: CommandPaletteView?
 
     init(
         controller: WorkspaceController,
@@ -373,6 +378,7 @@ final class WorkspaceShellViewController: NSViewController {
         view.window?.backgroundColor = theme.shell.windowBackground
         sidebarView.apply(theme: theme)
         canvasView.apply(theme: theme)
+        commandPaletteView?.apply(theme: theme)
     }
 
     private func shouldRestoreFocus(
@@ -589,6 +595,56 @@ final class WorkspaceShellViewController: NSViewController {
         } else if alert.runModal() == .alertFirstButtonReturn {
             rename()
         }
+    }
+
+    func presentCommandPalette(initialQuery: String, keyBindings: OpenMUXKeyBindingRegistry) {
+        let previousResponder = view.window?.firstResponder
+        let paletteView: CommandPaletteView
+        if let existing = commandPaletteView {
+            paletteView = existing
+        } else {
+            paletteView = CommandPaletteView()
+            commandPaletteView = paletteView
+            view.addSubview(paletteView)
+            NSLayoutConstraint.activate([
+                paletteView.topAnchor.constraint(equalTo: view.topAnchor),
+                paletteView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                paletteView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+                paletteView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            ])
+        }
+        paletteView.apply(theme: currentTheme)
+
+        paletteView.resultProvider = { [weak self] query in
+            guard let self else { return [] }
+            let parsed = CommandPaletteParsedQuery(rawText: query)
+            switch parsed.mode {
+            case .workspace:
+                return CommandPaletteSearch.workspaceResults(
+                    query: parsed.matchingText,
+                    workspaces: controller.commandPaletteWorkspaces()
+                )
+            case .command:
+                return CommandPaletteSearch.commandResults(
+                    query: parsed.matchingText,
+                    commands: CommandPaletteCommandCatalog.commands(controller: controller, keyBindings: keyBindings)
+                )
+            }
+        }
+        paletteView.invokeResult = { [weak self] result in
+            guard let self else { return .failed("Window is unavailable") }
+            if result.invocationTarget == .action(.sidebarToggle) {
+                toggleSidebarVisibility()
+                return .invoked
+            }
+            return controller.invokeCommandPaletteResult(result)
+        }
+        paletteView.dismissHandler = { [weak self, weak paletteView] in
+            if self?.commandPaletteView === paletteView {
+                self?.commandPaletteView = nil
+            }
+        }
+        paletteView.present(initialQuery: initialQuery, restoring: previousResponder)
     }
 
     private func presentRenamePanePrompt(paneID: PaneID, currentTitle: String) {
