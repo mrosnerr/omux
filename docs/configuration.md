@@ -43,7 +43,7 @@ renderer = "builtin"
 theme = "auto"
 
 [keys]
-"cmd+k" = "command-palette.workspace"
+"cmd+p" = "command-palette.workspace"
 "cmd+shift+p" = "command-palette.command"
 "cmd+n" = "workspace.create"
 "cmd+shift+n" = "workspace.close"
@@ -335,9 +335,9 @@ colors_enabled = true
 
 ## `[keys]` keybindings
 
-`[keys]` maps a single key chord to an OpenMUX shell action. Use it to resolve conflicts with terminal applications such as Helix, Vim, tmux, or remote SSH sessions: bind the action elsewhere, or map the chord to `"none"` so OpenMUX leaves it to the terminal.
+`[keys]` maps a single key chord to an OpenMUX shell action. User action bindings replace OpenMUX defaults for that action, so rebinding only requires the new chord. Use `"none"` when you want OpenMUX to leave a chord to the terminal.
 
-The command palette is the keyboard-first shell entrypoint. `Cmd+K` opens workspace search with all open workspaces listed. `Cmd+Shift+P` opens the same palette with `>` prefilled for OpenMUX actions and the full `omux` command catalog. While the palette is open, query text stays in the palette and is not sent to the focused terminal until a command is invoked.
+The command palette is the keyboard-first shell entrypoint. `Cmd+P` opens workspace search with all open workspaces listed. `Cmd+Shift+P` opens the same palette with `>` prefilled for OpenMUX actions and the full `omux` command catalog. While the palette is open, query text stays in the palette and is not sent to the focused terminal until a command is invoked.
 
 Command-mode action entries are backed by bundled JSON descriptors with a typed `command.kind` and `command.target`; CLI entries are generated from the shared CLI command catalog. Invoking a CLI entry routes its `omux ...` command through the focused terminal, submitting commands without required arguments and inserting editable templates for commands that need arguments.
 
@@ -345,8 +345,8 @@ Example:
 
 ```toml
 [keys]
-"cmd+shift+w" = "none"
 "cmd+shift+p" = "pane.remove"
+"cmd+shift+w" = "none"
 ```
 
 Chord syntax:

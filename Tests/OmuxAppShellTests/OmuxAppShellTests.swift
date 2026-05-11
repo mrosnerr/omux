@@ -127,7 +127,7 @@ final class OmuxAppShellTests: XCTestCase {
         ) ?? false)
         XCTAssertTrue(viewMenu?.items.containsShortcut(
             title: "Command Palette",
-            key: "k",
+            key: "p",
             modifiers: [.command]
         ) ?? false)
         XCTAssertTrue(viewMenu?.items.containsShortcut(

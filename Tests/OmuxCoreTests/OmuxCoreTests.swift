@@ -317,17 +317,13 @@ final class OmuxCoreTests: XCTestCase {
     func testConfigurableKeyBindingsOverrideDefaultsAndUnbindChords() throws {
         let registry = OpenMUXKeyBindingRegistry.effective(overrides: [
             OpenMUXKeyBindingOverride(
-                chord: try OpenMUXKeyChord(parsing: "cmd+shift+w"),
-                action: nil
-            ),
-            OpenMUXKeyBindingOverride(
                 chord: try OpenMUXKeyChord(parsing: "cmd+shift+p"),
                 action: .paneRemove
             ),
         ])
         let normalizer = DefaultKeyEventNormalizer(keyBindingRegistry: registry)
 
-        let unboundDefault = normalizer.normalize(
+        let replacedDefault = normalizer.normalize(
             RawKeyInput(
                 keyCode: 13,
                 characters: "W",
@@ -353,18 +349,18 @@ final class OmuxCoreTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(unboundDefault.route, .terminal)
+        XCTAssertEqual(replacedDefault.route, .terminal)
         XCTAssertEqual(rebound.route, .shortcut)
         XCTAssertEqual(composing.route, .composition)
     }
 
     func testCommandPaletteDefaultShortcutsRouteToShortcutAndCanBeUnbound() throws {
         let normalizer = DefaultKeyEventNormalizer(keyBindingRegistry: .defaults)
-        let commandK = normalizer.normalize(
+        let commandP = normalizer.normalize(
             RawKeyInput(
-                keyCode: 40,
-                characters: "k",
-                charactersIgnoringModifiers: "k",
+                keyCode: 35,
+                characters: "p",
+                charactersIgnoringModifiers: "p",
                 modifiers: [.leftCommand]
             )
         )
@@ -376,27 +372,27 @@ final class OmuxCoreTests: XCTestCase {
                 modifiers: [.leftCommand, .leftShift]
             )
         )
-        let optionCommandK = normalizer.normalize(
+        let optionCommandP = normalizer.normalize(
             RawKeyInput(
-                keyCode: 40,
-                characters: "˚",
-                charactersIgnoringModifiers: "k",
+                keyCode: 35,
+                characters: "π",
+                charactersIgnoringModifiers: "p",
                 modifiers: [.leftCommand, .leftOption]
             )
         )
 
-        XCTAssertEqual(commandK.route, .shortcut)
+        XCTAssertEqual(commandP.route, .shortcut)
         XCTAssertEqual(commandShiftP.route, .shortcut)
-        XCTAssertEqual(optionCommandK.route, .terminal)
+        XCTAssertEqual(optionCommandP.route, .terminal)
 
         let unbound = DefaultKeyEventNormalizer(keyBindingRegistry: .effective(overrides: [
-            OpenMUXKeyBindingOverride(chord: try OpenMUXKeyChord(parsing: "cmd+k"), action: nil),
+            OpenMUXKeyBindingOverride(chord: try OpenMUXKeyChord(parsing: "cmd+p"), action: nil),
             OpenMUXKeyBindingOverride(chord: try OpenMUXKeyChord(parsing: "cmd+shift+p"), action: nil),
         ]))
         XCTAssertEqual(unbound.normalize(RawKeyInput(
-            keyCode: 40,
-            characters: "k",
-            charactersIgnoringModifiers: "k",
+            keyCode: 35,
+            characters: "p",
+            charactersIgnoringModifiers: "p",
             modifiers: [.leftCommand]
         )).route, .terminal)
         XCTAssertEqual(unbound.normalize(RawKeyInput(

@@ -6,7 +6,7 @@ The command palette is a fuzzy-search overlay for quickly invoking workspace act
 
 | Shortcut | Mode | Pre-fill |
 | --- | --- | --- |
-| `Cmd+K` | Workspace switcher | empty |
+| `Cmd+P` | Workspace switcher | empty |
 | `Cmd+Shift+P` | Command search | `>` |
 
 You can also open it from the **View** menu.
