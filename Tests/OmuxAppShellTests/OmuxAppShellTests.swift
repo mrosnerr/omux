@@ -916,6 +916,7 @@ final class OmuxAppShellTests: XCTestCase {
             updateAvailability: OpenMUXUpdateAvailability(version: "0.5.0"),
             onMoveWorkspace: { _, _ in },
             onToggleWorkspaceExpansion: { _ in },
+            onRenameWorkspace: { _, _ in },
             onSelectPane: { _ in }
         )
 
@@ -963,6 +964,7 @@ final class OmuxAppShellTests: XCTestCase {
             updateAvailability: OpenMUXUpdateAvailability(version: "0.5.0"),
             onMoveWorkspace: { _, _ in },
             onToggleWorkspaceExpansion: { _ in },
+            onRenameWorkspace: { _, _ in },
             onSelectPane: { _ in }
         )
         sidebar.layoutSubtreeIfNeeded()
@@ -1016,6 +1018,7 @@ final class OmuxAppShellTests: XCTestCase {
             updateAvailability: nil,
             onMoveWorkspace: { _, _ in },
             onToggleWorkspaceExpansion: { _ in },
+            onRenameWorkspace: { _, _ in },
             onSelectPane: { _ in }
         )
         sidebar.layoutSubtreeIfNeeded()
