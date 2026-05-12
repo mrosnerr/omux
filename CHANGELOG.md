@@ -7,6 +7,19 @@ OpenMUX release notes are committed here before tagging a release. Use `Scripts/
 
 
 
+
+## 0.15.1
+
+### Changed
+
+- Improved terminal startup by resolving Ghostty resources from packaged app bundles and local vendored development layouts automatically.
+- Ensured managed Ghostty output keeps `shell-integration = detect` enabled so shell integration remains available for OpenMUX features.
+
+### Fixed
+
+- Fixed zsh integration in restored scrollback sessions by setting `ZDOTDIR` to Ghostty’s integration directory when available.
+- Fixed a workspace persistence timing issue so pane working-directory updates can be persisted reliably after state restore.
+
 ## 0.15.0
 
 ### Added
