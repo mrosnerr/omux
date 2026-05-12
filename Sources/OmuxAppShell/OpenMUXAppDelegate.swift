@@ -97,8 +97,8 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         _ = notification
         configureMenus()
         workspaceController.onChange = { [weak self] workspace in
+            self?.persistWorkspaceLayoutState()
             Task { @MainActor in
-                self?.persistWorkspaceLayoutState()
                 self?.windowController?.update(workspace: workspace)
                 self?.refreshMenuValidation()
             }

@@ -281,7 +281,15 @@ public final class ScrollbackReplayWrapperStore: @unchecked Sendable {
     printf '\\033[0m'
     printf '\\033[?25h'
     printf '\\n'
-    exec "${SHELL:-/bin/sh}" -l
+    shell="${SHELL:-/bin/sh}"
+    shell_name="${shell##*/}"
+    if [ "$shell_name" = "zsh" ] && [ -n "$GHOSTTY_RESOURCES_DIR" ] && [ -d "$GHOSTTY_RESOURCES_DIR/shell-integration/zsh" ]; then
+      if [ -n "$ZDOTDIR" ]; then
+        export GHOSTTY_ZSH_ZDOTDIR="$ZDOTDIR"
+      fi
+      export ZDOTDIR="$GHOSTTY_RESOURCES_DIR/shell-integration/zsh"
+    fi
+    exec "$shell" -l
     """
 
     private let directoryURL: URL

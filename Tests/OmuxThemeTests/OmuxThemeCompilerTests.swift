@@ -88,6 +88,28 @@ struct OmuxThemeCompilerTests {
     }
 
     @Test
+    func compilerKeepsShellIntegrationEnabledForCwdReporting() {
+        let theme = makeTheme(name: "test")
+        let config = OmuxConfig(
+            schema: 1,
+            theme: OmuxConfigTheme(name: "test"),
+            terminal: OmuxConfigTerminal(),
+            ghostty: [
+                OmuxGhosttyConfigEntry(key: "shell-integration", value: .string("none")),
+            ]
+        )
+
+        let output = OmuxThemeCompiler(buildVersion: "test-build").compile(theme: theme, config: config)
+        let disabledIndex = output.contents.range(of: "shell-integration = \"none\"")?.lowerBound
+        let managedIndex = output.contents.range(of: "shell-integration = detect")?.lowerBound
+
+        #expect(output.diagnostics.contains(where: { $0.severity == .warning && $0.message.contains("shell-integration") }))
+        #expect(disabledIndex != nil)
+        #expect(managedIndex != nil)
+        #expect(disabledIndex! < managedIndex!)
+    }
+
+    @Test
     func writeCreatesGeneratedFileWithHeader() throws {
         let directory = try temporaryDirectory()
         defer { cleanup(directory) }

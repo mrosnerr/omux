@@ -1870,6 +1870,54 @@ final class OmuxAppShellTests: XCTestCase {
         XCTAssertNil(controller.activeWorkspace()?.focusedPane?.terminalState.progress)
     }
 
+    func testRestoredPaneWorkingDirectoriesCanBeUpdatedAndPersistedAgain() throws {
+        let runtime = ActionEmittingGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let controller = WorkspaceController(
+            bridge: bridge,
+            hookRunner: ExternalHookRunner()
+        )
+
+        let workspace = try controller.openWorkspace(at: "/Users/example")
+        let firstPane = try XCTUnwrap(workspace.focusedPane)
+        let firstSurfaceID = try XCTUnwrap(bridge.surface(for: firstPane.id)?.runtimeSurfaceID)
+        runtime.emit(.workingDirectoryChanged("/Users/example/projects/myflx"), on: firstSurfaceID)
+
+        let splitWorkspace = try XCTUnwrap(controller.splitFocusedPane(axis: .columns))
+        let secondPane = try XCTUnwrap(splitWorkspace.focusedPane)
+        let secondSurfaceID = try XCTUnwrap(bridge.surface(for: secondPane.id)?.runtimeSurfaceID)
+        runtime.emit(.workingDirectoryChanged("/Users/example/projects/myflx/apps/static-web"), on: secondSurfaceID)
+
+        let initialSnapshot = try XCTUnwrap(controller.persistenceSnapshot())
+        let restoredRuntime = ActionEmittingGhosttyRuntime()
+        let restoredBridge = GhosttyTerminalBridge(runtime: restoredRuntime)
+        let restoredController = WorkspaceController(
+            bridge: restoredBridge,
+            hookRunner: ExternalHookRunner()
+        )
+
+        _ = try XCTUnwrap(restoredController.restorePersistedState(initialSnapshot))
+        let restoredPanes = restoredController.allWorkspaces().flatMap { $0.tabs.flatMap(\.panes) }
+        let restoredFirstPane = try XCTUnwrap(restoredPanes.first(where: { $0.id == firstPane.id }))
+        let restoredSecondPane = try XCTUnwrap(restoredPanes.first(where: { $0.id == secondPane.id }))
+        let restoredFirstSurfaceID = try XCTUnwrap(restoredBridge.surface(for: restoredFirstPane.id)?.runtimeSurfaceID)
+        let restoredSecondSurfaceID = try XCTUnwrap(restoredBridge.surface(for: restoredSecondPane.id)?.runtimeSurfaceID)
+
+        restoredRuntime.emit(.workingDirectoryChanged("/Users/example/projects/myflx/apps"), on: restoredFirstSurfaceID)
+        restoredRuntime.emit(.workingDirectoryChanged("/Users/example/projects/myflx/apps"), on: restoredSecondSurfaceID)
+
+        let updatedSnapshot = try XCTUnwrap(restoredController.persistenceSnapshot())
+        let updatedPanes = updatedSnapshot.workspaces.flatMap { $0.tabs.flatMap(\.panes) }
+        XCTAssertEqual(
+            updatedPanes.first(where: { $0.id == firstPane.id })?.session.workingDirectory,
+            "/Users/example/projects/myflx/apps"
+        )
+        XCTAssertEqual(
+            updatedPanes.first(where: { $0.id == secondPane.id })?.session.workingDirectory,
+            "/Users/example/projects/myflx/apps"
+        )
+    }
+
     func testWorkspaceControllerPersistsDistinctPaneWorkingDirectoriesAcrossWorkspaces() throws {
         let runtime = ActionEmittingGhosttyRuntime()
         let bridge = GhosttyTerminalBridge(runtime: runtime)
@@ -2131,6 +2179,8 @@ final class OmuxAppShellTests: XCTestCase {
         let replayPath = try XCTUnwrap(launchSession.environment[ScrollbackReplayStore.environmentKey])
         XCTAssertEqual(try String(contentsOfFile: replayPath, encoding: .utf8), scrollback.text)
         XCTAssertEqual(controller.activeWorkspace()?.focusedPane?.session.shell, "/bin/zsh")
+        let wrapperScript = try String(contentsOf: root.appendingPathComponent("Replay/restore-scrollback.sh"), encoding: .utf8)
+        XCTAssertTrue(wrapperScript.contains("export ZDOTDIR=\"$GHOSTTY_RESOURCES_DIR/shell-integration/zsh\""))
     }
 
     func testWorkspaceRestoreSkipsReplayWrapperWhenPersistedScrollbackIsDisabled() throws {

@@ -1680,6 +1680,8 @@ private func ensureGhosttyInitialized() throws {
         return
     }
 
+    GhosttyResourceLocator.configureEnvironmentIfNeeded()
+
     var argv = CommandLine.arguments.map { strdup($0) }
     defer {
         argv.forEach { free($0) }

@@ -8,6 +8,52 @@ import XCTest
 @testable import OmuxTerminalBridge
 
 final class OmuxTerminalBridgeTests: XCTestCase {
+    func testGhosttyResourceLocatorFindsPackagedAppResources() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GhosttyResourceLocatorTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let executableURL = root
+            .appendingPathComponent("OpenMUX.app/Contents/MacOS/OpenMUXApp", isDirectory: false)
+        let resourceURL = root
+            .appendingPathComponent("OpenMUX.app/Contents/Resources/ghostty", isDirectory: true)
+        let integrationURL = resourceURL
+            .appendingPathComponent("shell-integration/zsh/ghostty-integration", isDirectory: false)
+
+        try FileManager.default.createDirectory(at: executableURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: integrationURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: executableURL)
+        try Data().write(to: integrationURL)
+
+        XCTAssertEqual(
+            GhosttyResourceLocator.resourcesDirectoryURL(executableURL: executableURL)?.standardizedFileURL,
+            resourceURL.standardizedFileURL
+        )
+    }
+
+    func testGhosttyResourceLocatorFindsVendoredDevResources() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GhosttyResourceLocatorTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let executableURL = root
+            .appendingPathComponent(".build/debug/OpenMUXApp", isDirectory: false)
+        let resourceURL = root
+            .appendingPathComponent("Vendor/ghostty/zig-out/share/ghostty", isDirectory: true)
+        let integrationURL = resourceURL
+            .appendingPathComponent("shell-integration/zsh/ghostty-integration", isDirectory: false)
+
+        try FileManager.default.createDirectory(at: executableURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: integrationURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: executableURL)
+        try Data().write(to: integrationURL)
+
+        XCTAssertEqual(
+            GhosttyResourceLocator.resourcesDirectoryURL(executableURL: executableURL)?.standardizedFileURL,
+            resourceURL.standardizedFileURL
+        )
+    }
+
     func testTerminalTextActivationExtractsTokenAtPointerLocation() {
         let paneID = PaneID()
         let request = TerminalTextActivationRequest(
@@ -346,7 +392,8 @@ final class OmuxTerminalBridgeTests: XCTestCase {
         XCTAssertTrue(script.contains("cat \"$OMUX_RESTORE_SCROLLBACK_FILE\""))
         XCTAssertTrue(script.contains("printf '\\033[0m'"))
         XCTAssertTrue(script.contains("printf '\\033[?25h'"))
-        XCTAssertTrue(script.contains("exec \"${SHELL:-/bin/sh}\" -l"))
+        XCTAssertTrue(script.contains("export ZDOTDIR=\"$GHOSTTY_RESOURCES_DIR/shell-integration/zsh\""))
+        XCTAssertTrue(script.contains("exec \"$shell\" -l"))
         let attributes = try FileManager.default.attributesOfItem(atPath: launch.wrapperURL.path)
         XCTAssertEqual(attributes[.posixPermissions] as? Int, 0o700)
     }

@@ -36,6 +36,7 @@ public enum OmuxManagedGhosttyKey {
         "font-family",
         "font-size",
         "scrollback-limit",
+        "shell-integration",
         "window-padding-x",
         "window-padding-y",
     ]
@@ -164,6 +165,7 @@ public struct OmuxThemeCompiler {
             ("cursor-text", resolvedTokens[.cursorText].hexString),
             ("selection-background", resolvedTokens[.selectionBackground].hexString),
             ("selection-foreground", resolvedTokens[.selectionForeground].hexString),
+            ("shell-integration", "detect"),
             ("window-padding-x", "6"),
             ("window-padding-y", "6"),
         ]
