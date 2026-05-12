@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
- asss Fast, flexible, scriptable, and terminal-first.
+ Fast, flexible, scriptable, and terminal-first.
 </p>
 
 <p align="center">
