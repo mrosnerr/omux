@@ -6,6 +6,26 @@ OpenMUX release notes are committed here before tagging a release. Use `Scripts/
 
 
 
+
+## 0.15.0
+
+### Added
+
+- Added `omux config open` and a matching command-palette action for opening `~/.omux/config.toml` in the configured editor or macOS default text editor.
+- Added remote extension registries for hooks and plugins, including default official registries, `[registries]` configuration, and `omux hooks/plugins discover`, `install`, `update`, and `uninstall` workflows.
+- Added richer plugin capabilities for extension panes, including opt-in host-mediated action callbacks, native Configuration menu contributions from installed plugin manifests, and support for the registry-hosted Settings UI plugin.
+- Added JSON config export/apply support through `omux config get --json` and `omux config apply --json-file`, allowing tools and plugins to edit supported settings through OpenMUX validation and reload behavior.
+- Added inline workspace renaming from the sidebar by double-clicking a workspace name or choosing Rename from its context menu.
+
+### Changed
+
+- Updated plugin and hook documentation with registry formats, install behavior, menu contribution metadata, extension-pane action callbacks, and Settings UI usage.
+- Updated getting-started and configuration docs to cover `omux config open`, registry settings, installed package receipts, and plugin-managed settings workflows.
+
+### Fixed
+
+- Fixed command-palette mouse navigation so hovering and clicking results updates selection and invokes the intended command without dragging the window.
+
 ## 0.14.0
 
 ### Changed
