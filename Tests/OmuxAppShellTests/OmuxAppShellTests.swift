@@ -2453,6 +2453,76 @@ final class OmuxAppShellTests: XCTestCase {
         XCTAssertTrue(wrapperScript.contains("export ZDOTDIR=\"$GHOSTTY_RESOURCES_DIR/shell-integration/zsh\""))
     }
 
+    func testWorkspaceRestoreDefersHiddenTabTerminalSurfaceUntilVisible() throws {
+        let runtime = ActionEmittingGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let visiblePane = Pane(
+            title: "visible",
+            session: SessionDescriptor(shell: "/bin/zsh", workingDirectory: "/tmp/visible")
+        )
+        let hiddenPane = Pane(
+            title: "hidden",
+            session: SessionDescriptor(shell: "/bin/zsh", workingDirectory: "/tmp/hidden")
+        )
+        let hiddenTab = Tab(title: "Hidden", panes: [hiddenPane], focusedPaneID: hiddenPane.id)
+        let visibleTab = Tab(title: "Visible", panes: [visiblePane], focusedPaneID: visiblePane.id)
+        let workspace = Workspace(
+            generatedName: "Workspace 1",
+            rootPath: "/tmp/project",
+            tabs: [hiddenTab, visibleTab],
+            focusedTabID: visibleTab.id
+        )
+        let controller = WorkspaceController(
+            bridge: bridge,
+            hookRunner: ExternalHookRunner()
+        )
+
+        _ = try XCTUnwrap(controller.restorePersistedState(.init(workspaces: [workspace], activeWorkspaceID: workspace.id)))
+
+        XCTAssertNotNil(bridge.surface(for: visiblePane.id))
+        XCTAssertNotNil(runtime.session(for: "action:\(visiblePane.id.rawValue)"))
+        XCTAssertNil(bridge.surface(for: hiddenPane.id))
+
+        _ = controller.focus(tabID: hiddenTab.id)
+        _ = try controller.ensureVisibleTerminalSurfaces(for: workspace.id)
+
+        XCTAssertNotNil(bridge.surface(for: hiddenPane.id))
+        XCTAssertNotNil(runtime.session(for: "action:\(hiddenPane.id.rawValue)"))
+    }
+
+    func testControlPlaneActionStartsLazyRestoredPaneBeforeSendingInput() throws {
+        let runtime = ActionEmittingGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let visiblePane = Pane(
+            title: "visible",
+            session: SessionDescriptor(shell: "/bin/zsh", workingDirectory: "/tmp/visible")
+        )
+        let hiddenPane = Pane(
+            title: "hidden",
+            session: SessionDescriptor(shell: "/bin/zsh", workingDirectory: "/tmp/hidden")
+        )
+        let hiddenTab = Tab(title: "Hidden", panes: [hiddenPane], focusedPaneID: hiddenPane.id)
+        let visibleTab = Tab(title: "Visible", panes: [visiblePane], focusedPaneID: visiblePane.id)
+        let workspace = Workspace(
+            generatedName: "Workspace 1",
+            rootPath: "/tmp/project",
+            tabs: [hiddenTab, visibleTab],
+            focusedTabID: visibleTab.id
+        )
+        let controller = WorkspaceController(
+            bridge: bridge,
+            hookRunner: ExternalHookRunner()
+        )
+
+        _ = try XCTUnwrap(controller.restorePersistedState(.init(workspaces: [workspace], activeWorkspaceID: workspace.id)))
+        XCTAssertNil(bridge.surface(for: hiddenPane.id))
+
+        _ = try XCTUnwrap(controller.sendText(target: .pane(hiddenPane.id), text: "echo lazy\n"))
+
+        XCTAssertNotNil(bridge.surface(for: hiddenPane.id))
+        XCTAssertEqual(runtime.currentInputText(), "echo lazy\n")
+    }
+
     func testWorkspaceRestoreSkipsReplayWrapperWhenPersistedScrollbackIsDisabled() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("WorkspaceReplayTests-\(UUID().uuidString)", isDirectory: true)
@@ -2819,6 +2889,32 @@ final class OmuxAppShellTests: XCTestCase {
         let wsButton = try XCTUnwrap(findAncestor(ofType: SidebarItemButton.self, for: wsLabel))
         XCTAssertNotNil(wsButton)
         XCTAssertGreaterThanOrEqual(findViews(ofType: NSImageView.self, in: sidebar).count, 2)
+    }
+
+    @MainActor
+    func testWorkspaceWindowCachesTerminalSnapshotsAcrossInitialRender() throws {
+        let runtime = ActionEmittingGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let controller = WorkspaceController(
+            bridge: bridge,
+            hookRunner: ExternalHookRunner()
+        )
+        let workspaceRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: workspaceRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workspaceRoot) }
+
+        let workspace = try controller.openWorkspace(at: workspaceRoot.path)
+        let pane = try XCTUnwrap(workspace.focusedPane)
+        let surfaceID = try XCTUnwrap(bridge.surface(for: pane.id)?.runtimeSurfaceID)
+        runtime.transcript = "vim - Vi IMproved"
+
+        let windowController = WorkspaceWindowController(workspace: workspace, controller: controller)
+        let rootView = try XCTUnwrap(windowController.window?.contentViewController?.view)
+        rootView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(surfaceID, "action:\(pane.id.rawValue)")
+        XCTAssertEqual(runtime.terminalTextSnapshotCount, 1)
     }
 
     @MainActor
@@ -3479,6 +3575,126 @@ final class OmuxAppShellTests: XCTestCase {
         XCTAssertEqual(controller.activeWorkspace()?.focusedPane?.terminalState.reportedWorkingDirectory, "/var/tmp")
         XCTAssertEqual(publishedEvent?.name, "terminal.cwdChanged")
         XCTAssertEqual(publishedEvent?.payload.objectValue?["path"], .string("/var/tmp"))
+    }
+
+    func testTerminalActionStateChangesCoalesceWorkspaceUpdates() throws {
+        let runtime = ActionEmittingGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let controller = WorkspaceController(
+            bridge: bridge,
+            hookRunner: ExternalHookRunner(),
+            terminalStateChangeCoalescingDelay: 0.01,
+            terminalDisplayTitleUpdateMinimumInterval: 0
+        )
+
+        let workspace = try controller.openWorkspace(at: "/tmp")
+        let pane = try XCTUnwrap(workspace.focusedPane)
+        let runtimeSurfaceID = try XCTUnwrap(bridge.surface(for: pane.id)?.runtimeSurfaceID)
+        let firstChangeDelivered = expectation(description: "coalesced workspace update delivered")
+        var changeCount = 0
+        controller.onChange = { _ in
+            changeCount += 1
+            if changeCount == 1 {
+                firstChangeDelivered.fulfill()
+            }
+        }
+
+        runtime.emit(.titleChanged("Codex 1"), on: runtimeSurfaceID)
+        runtime.emit(.titleChanged("Codex 2"), on: runtimeSurfaceID)
+        runtime.emit(.titleChanged("Codex 3"), on: runtimeSurfaceID)
+
+        wait(for: [firstChangeDelivered], timeout: 1)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertEqual(changeCount, 1)
+        XCTAssertEqual(controller.activeWorkspace()?.focusedPane?.terminalState.reportedTitle, "Codex 3")
+        XCTAssertEqual(controller.activeWorkspace()?.focusedPane?.title, "Codex 3")
+
+        runtime.emit(.titleChanged("Codex 3"), on: runtimeSurfaceID)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertEqual(changeCount, 1)
+    }
+
+    func testTerminalTitleSpinnerFramesDoNotTriggerWorkspaceUpdates() throws {
+        let runtime = ActionEmittingGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let controller = WorkspaceController(
+            bridge: bridge,
+            hookRunner: ExternalHookRunner(),
+            terminalStateChangeCoalescingDelay: 0.01
+        )
+
+        let workspace = try controller.openWorkspace(at: "/tmp")
+        let pane = try XCTUnwrap(workspace.focusedPane)
+        let runtimeSurfaceID = try XCTUnwrap(bridge.surface(for: pane.id)?.runtimeSurfaceID)
+        let firstChangeDelivered = expectation(description: "initial title update delivered")
+        var changeCount = 0
+        controller.onChange = { _ in
+            changeCount += 1
+            if changeCount == 1 {
+                firstChangeDelivered.fulfill()
+            }
+        }
+
+        runtime.emit(.titleChanged("⠋ Codex"), on: runtimeSurfaceID)
+
+        wait(for: [firstChangeDelivered], timeout: 1)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(changeCount, 1)
+        XCTAssertEqual(controller.activeWorkspace()?.focusedPane?.title, "Codex")
+        XCTAssertEqual(controller.activeWorkspace()?.focusedPane?.terminalState.reportedTitle, "⠋ Codex")
+
+        runtime.emit(.titleChanged("⠙ Codex"), on: runtimeSurfaceID)
+        runtime.emit(.titleChanged("• Codex"), on: runtimeSurfaceID)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertEqual(changeCount, 1)
+        XCTAssertEqual(controller.activeWorkspace()?.focusedPane?.title, "Codex")
+        XCTAssertEqual(controller.activeWorkspace()?.focusedPane?.terminalState.reportedTitle, "• Codex")
+    }
+
+    func testTerminalTitleDisplayUpdatesAreRateLimited() throws {
+        let runtime = ActionEmittingGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let controller = WorkspaceController(
+            bridge: bridge,
+            hookRunner: ExternalHookRunner(),
+            terminalStateChangeCoalescingDelay: 0.01,
+            terminalDisplayTitleUpdateMinimumInterval: 0.08
+        )
+
+        let workspace = try controller.openWorkspace(at: "/tmp")
+        let pane = try XCTUnwrap(workspace.focusedPane)
+        let runtimeSurfaceID = try XCTUnwrap(bridge.surface(for: pane.id)?.runtimeSurfaceID)
+        let firstChangeDelivered = expectation(description: "initial title update delivered")
+        let trailingChangeDelivered = expectation(description: "trailing title update delivered")
+        var changeCount = 0
+        var deliveredTitles: [String?] = []
+        var deliveredAt: [Date] = []
+        controller.onChange = { workspace in
+            changeCount += 1
+            deliveredTitles.append(workspace.focusedPane?.title)
+            deliveredAt.append(Date())
+            if changeCount == 1 {
+                firstChangeDelivered.fulfill()
+            } else if changeCount == 2 {
+                trailingChangeDelivered.fulfill()
+            }
+        }
+
+        runtime.emit(.titleChanged("Codex reading"), on: runtimeSurfaceID)
+        wait(for: [firstChangeDelivered], timeout: 1)
+
+        runtime.emit(.titleChanged("Codex thinking"), on: runtimeSurfaceID)
+        runtime.emit(.titleChanged("Codex writing"), on: runtimeSurfaceID)
+        XCTAssertEqual(controller.activeWorkspace()?.focusedPane?.terminalState.reportedTitle, "Codex writing")
+
+        wait(for: [trailingChangeDelivered], timeout: 1)
+        XCTAssertEqual(changeCount, 2)
+        XCTAssertEqual(controller.activeWorkspace()?.focusedPane?.title, "Codex writing")
+        XCTAssertEqual(deliveredTitles, ["Codex reading", "Codex writing"])
+        XCTAssertGreaterThanOrEqual(deliveredAt[1].timeIntervalSince(deliveredAt[0]), 0.07)
     }
 
     @MainActor

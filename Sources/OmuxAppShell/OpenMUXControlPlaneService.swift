@@ -724,7 +724,7 @@ private extension Workspace {
     }
 
     var paneRPCObjects: [[String: RPCValue]] {
-        tabs.flatMap { tab in
+        let dockedPanes: [[String: RPCValue]] = tabs.flatMap { tab in
             tab.panes.map { pane in
                 [
                     "workspaceID": .string(id.rawValue),
@@ -741,7 +741,8 @@ private extension Workspace {
                     "focused": .bool(focusedFloatingPaneModalID == nil && focusedTabID == tab.id && tab.focusedPaneID == pane.id),
                 ]
             }
-        } + floatingPaneModals.flatMap { modal in
+        }
+        let floatingPanes: [[String: RPCValue]] = floatingPaneModals.flatMap { modal in
             modal.panes.map { pane in
                 [
                     "workspaceID": .string(id.rawValue),
@@ -759,6 +760,7 @@ private extension Workspace {
                 ]
             }
         }
+        return dockedPanes + floatingPanes
     }
 }
 

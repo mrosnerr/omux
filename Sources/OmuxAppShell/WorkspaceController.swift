@@ -67,6 +67,12 @@ public final class WorkspaceController: @unchecked Sendable {
     private var commandContextBySession: [SessionID: CommandAutomationContext] = [:]
     private var historyClearSuppressionByPane: [PaneID: String] = [:]
     private var progressIdleClearTokens: [PaneID: UUID] = [:]
+    private var pendingTerminalStateWorkspaceIDs: Set<WorkspaceID> = []
+    private var terminalStateChangeUpdateScheduled = false
+    private var deliveredTerminalDisplayTitleByPane: [PaneID: String] = [:]
+    private var lastTerminalDisplayTitleUpdateByPane: [PaneID: Date] = [:]
+    private var pendingTerminalDisplayTitlePaneIDs: Set<PaneID> = []
+    private var terminalDisplayTitleUpdateScheduled = false
     private var markdownPreviewWatchTasks: [PaneID: (token: UUID, task: Task<Void, Never>)] = [:]
     private var workspaceIndexByID: [WorkspaceID: Int] = [:]
     private var tabLocationByID: [TabID: (workspaceIndex: Int, tabIndex: Int)] = [:]
@@ -74,6 +80,8 @@ public final class WorkspaceController: @unchecked Sendable {
     private var sessionLocationByID: [SessionID: WorkspaceLookupLocation] = [:]
     private var lookupIndexesDirty = true
     private let progressIdleClearDelay: TimeInterval
+    private let terminalStateChangeCoalescingDelay: TimeInterval
+    private let terminalDisplayTitleUpdateMinimumInterval: TimeInterval
     private var controlPlaneEventHandler: ((ControlPlaneEvent) -> Void)?
     private lazy var terminalActionCoordinator = TerminalActionCoordinator(
         bridge: bridge,
@@ -100,7 +108,9 @@ public final class WorkspaceController: @unchecked Sendable {
         markdownPreviewConfiguration: OmuxConfigPlugins.MarkdownPreview = OmuxConfigPlugins.MarkdownPreview(),
         scrollbackReplayStore: ScrollbackReplayStore? = nil,
         scrollbackReplayWrapperStore: ScrollbackReplayWrapperStore? = nil,
-        progressIdleClearDelay: TimeInterval = 3
+        progressIdleClearDelay: TimeInterval = 3,
+        terminalStateChangeCoalescingDelay: TimeInterval = 0.05,
+        terminalDisplayTitleUpdateMinimumInterval: TimeInterval = 0.5
     ) {
         self.bridge = bridge
         self.hookRunner = hookRunner
@@ -111,6 +121,8 @@ public final class WorkspaceController: @unchecked Sendable {
         self.scrollbackReplayWrapperStore = scrollbackReplayWrapperStore
         self.defaultWorkspaceRootPath = defaultWorkspaceRootPath
         self.progressIdleClearDelay = progressIdleClearDelay
+        self.terminalStateChangeCoalescingDelay = terminalStateChangeCoalescingDelay
+        self.terminalDisplayTitleUpdateMinimumInterval = terminalDisplayTitleUpdateMinimumInterval
         _ = terminalActionCoordinator
     }
 
@@ -323,21 +335,20 @@ public final class WorkspaceController: @unchecked Sendable {
             return nil
         }
 
+        let restoredActiveWorkspaceID = snapshot.activeWorkspaceID.flatMap { activeID in
+            restoredWorkspaces.contains(where: { $0.id == activeID }) ? activeID : nil
+        } ?? restoredWorkspaces.first?.id
+
         let existingPaneIDs = allWorkspaces().flatMap(\.panes).map(\.id)
         for paneID in existingPaneIDs {
             try? bridge.teardown(paneID: paneID)
         }
 
-        for workspace in restoredWorkspaces {
-            for pane in workspace.panes where pane.isTerminal {
-                _ = try bridge.createSurface(for: pane)
-                _ = try bridge.attach(session: launchSession(forRestoredPane: pane), to: pane)
-            }
+        if let restoredActiveWorkspace = restoredActiveWorkspaceID.flatMap({ activeID in
+            restoredWorkspaces.first(where: { $0.id == activeID })
+        }) {
+            try ensureTerminalSurfaces(for: Self.visibleTerminalPanes(in: restoredActiveWorkspace))
         }
-
-        let restoredActiveWorkspaceID = snapshot.activeWorkspaceID.flatMap { activeID in
-            restoredWorkspaces.contains(where: { $0.id == activeID }) ? activeID : nil
-        } ?? restoredWorkspaces.first?.id
 
         lock.lock()
         workspaces = restoredWorkspaces
@@ -355,6 +366,20 @@ public final class WorkspaceController: @unchecked Sendable {
         }
 
         return updatedWorkspace
+    }
+
+    @discardableResult
+    public func ensureVisibleTerminalSurfaces(for workspaceID: WorkspaceID) throws -> Workspace? {
+        lock.lock()
+        guard let workspace = workspaces.first(where: { $0.id == workspaceID }) else {
+            lock.unlock()
+            return nil
+        }
+        let visiblePanes = Self.visibleTerminalPanes(in: workspace)
+        lock.unlock()
+
+        try ensureTerminalSurfaces(for: visiblePanes)
+        return workspace
     }
 
     private func launchSession(forRestoredPane pane: Pane) -> SessionDescriptor {
@@ -377,6 +402,45 @@ public final class WorkspaceController: @unchecked Sendable {
         }
 
         return launch.session
+    }
+
+    private func ensureTerminalSurfaces(for panes: [Pane]) throws {
+        for pane in panes {
+            try ensureTerminalSurface(for: pane)
+        }
+    }
+
+    @discardableResult
+    private func ensureTerminalSurface(for pane: Pane) throws -> Bool {
+        guard pane.isTerminal else {
+            return false
+        }
+        guard bridge.surface(for: pane.id) == nil else {
+            return false
+        }
+
+        _ = try bridge.attach(session: launchSession(forRestoredPane: pane), to: pane)
+        return true
+    }
+
+    @discardableResult
+    private func ensureTerminalSurface(for paneID: PaneID) throws -> Bool {
+        lock.lock()
+        guard let location = paneLocationLocked(for: paneID),
+              let pane = workspacePaneLocked(at: location)?.pane
+        else {
+            lock.unlock()
+            return false
+        }
+        lock.unlock()
+
+        return try ensureTerminalSurface(for: pane)
+    }
+
+    private static func visibleTerminalPanes(in workspace: Workspace) -> [Pane] {
+        let focusedTabPanes = (workspace.focusedTab ?? workspace.tabs.first)?.panes ?? []
+        let floatingPanes = workspace.floatingPaneModals.flatMap(\.panes)
+        return (focusedTabPanes + floatingPanes).filter(\.isTerminal)
     }
 
     private func currentPersistedScrollback() -> OmuxConfigTerminal.PersistedScrollback {
@@ -1734,6 +1798,7 @@ public final class WorkspaceController: @unchecked Sendable {
         guard let context = resolveTerminalTarget(target) else {
             return nil
         }
+        try ensureTerminalSurface(for: context.paneID)
 
         let cwd = workingDirectory(for: context.paneID)
         let payload: OmuxValue = .object([
@@ -1796,6 +1861,7 @@ public final class WorkspaceController: @unchecked Sendable {
         guard let context = resolveTerminalTarget(target) else {
             return nil
         }
+        try ensureTerminalSurface(for: context.paneID)
 
         try bridge.send(text: text, toPane: context.paneID)
         emitInputSent(
@@ -1888,14 +1954,17 @@ public final class WorkspaceController: @unchecked Sendable {
     }
 
     public func handleInput(_ event: NormalizedKeyEvent, in paneID: PaneID) throws {
+        try ensureTerminalSurface(for: paneID)
         try bridge.handle(event, inPane: paneID)
     }
 
     public func paste(_ text: String, in paneID: PaneID) throws {
+        try ensureTerminalSurface(for: paneID)
         try bridge.send(text: text, toPane: paneID)
     }
 
     public func resize(paneID: PaneID, columns: Int, rows: Int) throws {
+        try ensureTerminalSurface(for: paneID)
         try bridge.resize(paneID: paneID, columns: columns, rows: rows)
     }
 
@@ -2860,6 +2929,7 @@ public final class WorkspaceController: @unchecked Sendable {
     func applyTerminalActionState(_ event: TerminalActionEvent) -> ControlPlaneTerminalContext? {
         var updatedWorkspace: Workspace?
         var context: ControlPlaneTerminalContext?
+        var shouldScheduleTrailingTitleUpdate = false
 
         lock.lock()
         guard let location = paneLocationLocked(for: event.paneID),
@@ -2881,72 +2951,240 @@ public final class WorkspaceController: @unchecked Sendable {
 
         switch event.action {
         case .workingDirectoryChanged(let path):
+            var didChange = false
             _ = workspaces[workspaceIndex].updatePane(event.paneID) { pane in
                 if var session = pane.terminalSession {
-                    session.workingDirectory = path
-                    pane.terminalSession = session
+                    if session.workingDirectory != path {
+                        session.workingDirectory = path
+                        pane.terminalSession = session
+                        didChange = true
+                    }
                 }
-                pane.terminalState.reportedWorkingDirectory = path
+                if pane.terminalState.reportedWorkingDirectory != path {
+                    pane.terminalState.reportedWorkingDirectory = path
+                    didChange = true
+                }
             }
-            updatedWorkspace = workspaces[workspaceIndex]
+            if didChange {
+                updatedWorkspace = workspaces[workspaceIndex]
+            }
         case .titleChanged(let title):
+            var shouldUpdateWorkspace = false
+            let displayTitle = Self.displayTitle(forReportedTerminalTitle: title)
             _ = workspaces[workspaceIndex].updatePane(event.paneID) { pane in
-                pane.terminalState.reportedTitle = title
-                if WorkspaceIconResolver.terminalApplicationIcon(forTitle: title) == nil {
-                    pane.title = title
+                if pane.terminalState.reportedTitle != title {
+                    pane.terminalState.reportedTitle = title
+                }
+                guard let displayTitle,
+                      deliveredTerminalDisplayTitleByPane[event.paneID] != displayTitle
+                else {
+                    return
+                }
+
+                if shouldApplyTerminalDisplayTitleUpdateLocked(for: event.paneID, at: Date()) {
+                    deliveredTerminalDisplayTitleByPane[event.paneID] = displayTitle
+                    lastTerminalDisplayTitleUpdateByPane[event.paneID] = Date()
+                    if Self.shouldPromoteTerminalDisplayTitleToPaneTitle(displayTitle),
+                       pane.title != displayTitle {
+                        pane.title = displayTitle
+                    }
+                    shouldUpdateWorkspace = true
+                } else {
+                    pendingTerminalDisplayTitlePaneIDs.insert(event.paneID)
+                    shouldScheduleTrailingTitleUpdate = true
                 }
             }
-            updatedWorkspace = workspaces[workspaceIndex]
+            if shouldUpdateWorkspace {
+                updatedWorkspace = workspaces[workspaceIndex]
+            }
         case .tabTitleChanged(let title):
-            if let tabIndex = location.tabIndex {
+            if let tabIndex = location.tabIndex,
+               workspaces[workspaceIndex].tabs[tabIndex].title != title {
                 workspaces[workspaceIndex].tabs[tabIndex].title = title
                 updatedWorkspace = workspaces[workspaceIndex]
             }
         case .progressReported(let state, let progress):
+            var didChange = false
             _ = workspaces[workspaceIndex].updatePane(event.paneID) { pane in
+                let nextProgress: PaneProgress
                 switch state {
                 case .removed:
-                    pane.terminalState.progress = PaneProgress(state: .paused)
+                    nextProgress = PaneProgress(state: .paused)
                 case .active:
                     progressIdleClearTokens.removeValue(forKey: event.paneID)
-                    pane.terminalState.progress = PaneProgress(state: .active, value: progress)
+                    nextProgress = PaneProgress(state: .active, value: progress)
                 case .error:
                     progressIdleClearTokens.removeValue(forKey: event.paneID)
-                    pane.terminalState.progress = PaneProgress(state: .error, value: progress)
+                    nextProgress = PaneProgress(state: .error, value: progress)
                 case .indeterminate:
                     progressIdleClearTokens.removeValue(forKey: event.paneID)
-                    pane.terminalState.progress = PaneProgress(state: .indeterminate, value: progress)
+                    nextProgress = PaneProgress(state: .indeterminate, value: progress)
                 case .paused:
                     progressIdleClearTokens.removeValue(forKey: event.paneID)
-                    pane.terminalState.progress = PaneProgress(state: .paused, value: progress)
+                    nextProgress = PaneProgress(state: .paused, value: progress)
+                }
+                if pane.terminalState.progress != nextProgress {
+                    pane.terminalState.progress = nextProgress
+                    didChange = true
                 }
             }
-            if state == .removed {
+            if didChange, state == .removed {
                 handleIdleProgressSetLocked(for: event.paneID, workspaceIndex: workspaceIndex)
             }
-            updatedWorkspace = workspaces[workspaceIndex]
+            if didChange {
+                updatedWorkspace = workspaces[workspaceIndex]
+            }
         case .childExited(let exitCode, let elapsedMilliseconds):
+            var didChange = false
+            let nextExit = PaneExitStatus(
+                exitCode: exitCode,
+                elapsedMilliseconds: elapsedMilliseconds
+            )
             _ = workspaces[workspaceIndex].updatePane(event.paneID) { pane in
-                pane.terminalState.lastExit = PaneExitStatus(
-                    exitCode: exitCode,
-                    elapsedMilliseconds: elapsedMilliseconds
-                )
+                if pane.terminalState.lastExit != nextExit {
+                    pane.terminalState.lastExit = nextExit
+                    didChange = true
+                }
             }
-            updatedWorkspace = workspaces[workspaceIndex]
+            if didChange {
+                updatedWorkspace = workspaces[workspaceIndex]
+            }
         case .rendererHealthChanged(let isHealthy):
+            var didChange = false
             _ = workspaces[workspaceIndex].updatePane(event.paneID) { pane in
-                pane.terminalState.rendererHealthy = isHealthy
+                if pane.terminalState.rendererHealthy != isHealthy {
+                    pane.terminalState.rendererHealthy = isHealthy
+                    didChange = true
+                }
             }
-            updatedWorkspace = workspaces[workspaceIndex]
+            if didChange {
+                updatedWorkspace = workspaces[workspaceIndex]
+            }
         case .openURL, .desktopNotification, .bell, .inputSent, .commandFinished:
             break
         }
 
         lock.unlock()
+        if shouldScheduleTrailingTitleUpdate {
+            scheduleTerminalDisplayTitleUpdate()
+        }
         if let updatedWorkspace {
-            onChange?(updatedWorkspace)
+            scheduleTerminalStateChangeUpdate(for: updatedWorkspace.id)
         }
         return context
+    }
+
+    private func scheduleTerminalStateChangeUpdate(for workspaceID: WorkspaceID) {
+        lock.lock()
+        pendingTerminalStateWorkspaceIDs.insert(workspaceID)
+        guard terminalStateChangeUpdateScheduled == false else {
+            lock.unlock()
+            return
+        }
+        terminalStateChangeUpdateScheduled = true
+        let delay = terminalStateChangeCoalescingDelay
+        lock.unlock()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.flushTerminalStateChangeUpdates()
+        }
+    }
+
+    private static func displayTitle(forReportedTerminalTitle title: String) -> String? {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedTitle.isEmpty == false else {
+            return nil
+        }
+
+        let strippedTitle = String(trimmedTitle.drop { character in
+            character.isWhitespace || character.isTerminalTitleSpinnerGlyph
+        })
+        let displayTitle = strippedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        return displayTitle.isEmpty ? trimmedTitle : displayTitle
+    }
+
+    private func shouldApplyTerminalDisplayTitleUpdateLocked(for paneID: PaneID, at date: Date) -> Bool {
+        guard let lastUpdate = lastTerminalDisplayTitleUpdateByPane[paneID] else {
+            return true
+        }
+
+        return date.timeIntervalSince(lastUpdate) >= terminalDisplayTitleUpdateMinimumInterval
+    }
+
+    private static func shouldPromoteTerminalDisplayTitleToPaneTitle(_ title: String) -> Bool {
+        if WorkspaceIconResolver.terminalApplicationIcon(forTitle: title) == nil {
+            return true
+        }
+
+        let lowercased = title.localizedLowercase
+        let aiTerms = ["copilot", "github copilot", "claude", "chatgpt", "openai", "codex"]
+        return aiTerms.contains { lowercased.contains($0) }
+    }
+
+    private func scheduleTerminalDisplayTitleUpdate() {
+        lock.lock()
+        guard terminalDisplayTitleUpdateScheduled == false else {
+            lock.unlock()
+            return
+        }
+        terminalDisplayTitleUpdateScheduled = true
+        let delay = terminalDisplayTitleUpdateMinimumInterval
+        lock.unlock()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.flushTerminalDisplayTitleUpdates()
+        }
+    }
+
+    private func flushTerminalDisplayTitleUpdates() {
+        var updatedWorkspaceIDs = Set<WorkspaceID>()
+        let now = Date()
+
+        lock.lock()
+        let paneIDs = pendingTerminalDisplayTitlePaneIDs
+        pendingTerminalDisplayTitlePaneIDs.removeAll()
+        terminalDisplayTitleUpdateScheduled = false
+
+        for paneID in paneIDs {
+            guard let location = paneLocationLocked(for: paneID),
+                  let resolved = workspacePaneLocked(at: location),
+                  let reportedTitle = resolved.pane.terminalState.reportedTitle,
+                  let displayTitle = Self.displayTitle(forReportedTerminalTitle: reportedTitle),
+                  deliveredTerminalDisplayTitleByPane[paneID] != displayTitle
+            else {
+                continue
+            }
+
+            deliveredTerminalDisplayTitleByPane[paneID] = displayTitle
+            lastTerminalDisplayTitleUpdateByPane[paneID] = now
+            _ = workspaces[location.workspaceIndex].updatePane(paneID) { pane in
+                if Self.shouldPromoteTerminalDisplayTitleToPaneTitle(displayTitle),
+                   pane.title != displayTitle {
+                    pane.title = displayTitle
+                }
+            }
+            updatedWorkspaceIDs.insert(workspaces[location.workspaceIndex].id)
+        }
+        lock.unlock()
+
+        for workspaceID in updatedWorkspaceIDs {
+            scheduleTerminalStateChangeUpdate(for: workspaceID)
+        }
+    }
+
+    private func flushTerminalStateChangeUpdates() {
+        let updatedWorkspaces: [Workspace]
+
+        lock.lock()
+        let pendingIDs = pendingTerminalStateWorkspaceIDs
+        pendingTerminalStateWorkspaceIDs.removeAll()
+        terminalStateChangeUpdateScheduled = false
+        updatedWorkspaces = workspaces.filter { pendingIDs.contains($0.id) }
+        lock.unlock()
+
+        for workspace in updatedWorkspaces {
+            onChange?(workspace)
+        }
     }
 
     private func scheduleProgressIdleClear(for paneID: PaneID, token: UUID) {
@@ -2993,16 +3231,16 @@ public final class WorkspaceController: @unchecked Sendable {
     }
 
     private func clearProgressIdleState(for paneID: PaneID, token: UUID) {
-        var updatedWorkspace: Workspace?
+        var updatedWorkspaceID: WorkspaceID?
 
         lock.lock()
-        defer { lock.unlock() }
-
         guard progressIdleClearTokens[paneID] == token else {
+            lock.unlock()
             return
         }
         guard paneConfiguration.idleStatusClear == .afterDelay else {
             progressIdleClearTokens.removeValue(forKey: paneID)
+            lock.unlock()
             return
         }
 
@@ -3018,14 +3256,13 @@ public final class WorkspaceController: @unchecked Sendable {
                 pane.terminalState.progress = nil
             }
             progressIdleClearTokens.removeValue(forKey: paneID)
-            updatedWorkspace = workspaces[workspaceIndex]
+            updatedWorkspaceID = workspaces[workspaceIndex].id
             break
         }
+        lock.unlock()
 
-        if let updatedWorkspace {
-            DispatchQueue.main.async { [weak self] in
-                self?.onChange?(updatedWorkspace)
-            }
+        if let updatedWorkspaceID {
+            scheduleTerminalStateChangeUpdate(for: updatedWorkspaceID)
         }
     }
 
@@ -3508,5 +3745,29 @@ private extension PaneHistoryTarget {
             truncated: truncated,
             unavailable: unavailable
         )
+    }
+}
+
+private extension Character {
+    var isTerminalTitleSpinnerGlyph: Bool {
+        guard unicodeScalars.count == 1,
+              let scalar = unicodeScalars.first
+        else {
+            return false
+        }
+
+        if (0x2800...0x28FF).contains(Int(scalar.value)) {
+            return true
+        }
+
+        switch scalar {
+        case "•", "●", "◦", "○",
+             "◐", "◓", "◑", "◒",
+             "◜", "◠", "◝", "◞", "◡", "◟",
+             "⠁", "⠂", "⠄", "⡀", "⢀", "⠠", "⠐", "⠈":
+            return true
+        default:
+            return false
+        }
     }
 }
