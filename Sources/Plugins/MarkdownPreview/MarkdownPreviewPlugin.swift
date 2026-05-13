@@ -10,19 +10,22 @@ public struct OmuxMarkdownPreviewRequest: Equatable {
     public let title: String?
     public let watch: Bool
     public let axis: PaneSplitAxis
+    public let presentationStyle: ExtensionPanePresentationStyle?
 
     public init(
         fileURL: URL,
         paneID: String?,
         title: String?,
         watch: Bool,
-        axis: PaneSplitAxis
+        axis: PaneSplitAxis,
+        presentationStyle: ExtensionPanePresentationStyle?
     ) {
         self.fileURL = fileURL
         self.paneID = paneID
         self.title = title
         self.watch = watch
         self.axis = axis
+        self.presentationStyle = presentationStyle
     }
 }
 
@@ -463,6 +466,9 @@ public struct OmuxMarkdownPreviewPlugin {
             "status": .string(status),
             "html": .string(html),
         ]
+        if let presentation = request.presentationStyle.map({ RPCValue.string($0.rawValue) }) {
+            params["presentation"] = presentation
+        }
         if let message {
             params["message"] = .string(message)
         }
