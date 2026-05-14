@@ -10,6 +10,24 @@ OpenMUX release notes are committed here before tagging a release. Use `Scripts/
 
 
 
+
+## 0.17.0
+
+### Added
+
+- Added a focused-pane find bar for terminal scrollback, available from `Cmd+F`, **Edit -> Find in Pane...**, and the command palette.
+- Added a release installer script for GitHub Releases so you can install OpenMUX with `curl -fsSL https://github.com/finger-gun/omux/releases/latest/download/openmux-install.sh | bash`, with optional bundled CLI installation.
+
+### Changed
+
+- Changed pane search to follow focus, so the active query moves with you when you switch to another terminal pane.
+- Changed release packaging to ship the installer script alongside the app archive and checksums for direct-download installs.
+
+### Fixed
+
+- Fixed `omux update` so app installs are staged, verified, and handed off more reliably, including updates launched from an OpenMUX terminal pane.
+- Fixed pane-search highlight colors and relaxed unknown theme keys to warnings during theme compilation.
+
 ## 0.16.0
 
 ### Added
