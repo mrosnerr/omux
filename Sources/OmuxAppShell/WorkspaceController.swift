@@ -3060,7 +3060,7 @@ public final class WorkspaceController: @unchecked Sendable {
             if didChange {
                 updatedWorkspace = workspaces[workspaceIndex]
             }
-        case .openURL, .desktopNotification, .bell, .inputSent, .commandFinished:
+        case .openURL, .desktopNotification, .bell, .inputSent, .commandFinished, .searchMatchesUpdated:
             break
         }
 
