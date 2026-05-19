@@ -363,6 +363,7 @@ public struct OmuxConfigAgentSessions: Equatable, Sendable {
     public let enabled: Bool
     public let previewEnabled: Bool
     public let indexOnLaunch: Bool
+    public let collapsedToggleVisible: Bool
     public let includedAgents: [String]
     public let excludedPaths: [String]
     public let maxPreviewBytes: Int
@@ -373,6 +374,7 @@ public struct OmuxConfigAgentSessions: Equatable, Sendable {
         enabled: Bool = true,
         previewEnabled: Bool = true,
         indexOnLaunch: Bool = true,
+        collapsedToggleVisible: Bool = true,
         includedAgents: [String] = Self.defaultIncludedAgents,
         excludedPaths: [String] = [],
         maxPreviewBytes: Int = 1_048_576,
@@ -382,6 +384,7 @@ public struct OmuxConfigAgentSessions: Equatable, Sendable {
         self.enabled = enabled
         self.previewEnabled = previewEnabled
         self.indexOnLaunch = indexOnLaunch
+        self.collapsedToggleVisible = collapsedToggleVisible
         self.includedAgents = includedAgents
         self.excludedPaths = excludedPaths
         self.maxPreviewBytes = maxPreviewBytes
@@ -572,6 +575,7 @@ public enum OmuxConfigTemplate {
         enabled = true
         preview_enabled = true
         index_on_launch = true
+        collapsed_toggle_visible = true
         included_agents = ["codex", "claude", "opencode", "pi", "rovodev", "copilot", "gemini"]
         excluded_paths = []
         max_preview_bytes = 1048576
@@ -1608,6 +1612,7 @@ public struct OmuxConfigLoader {
             "enabled",
             "preview_enabled",
             "index_on_launch",
+            "collapsed_toggle_visible",
             "included_agents",
             "excluded_paths",
             "max_preview_bytes",
@@ -1616,6 +1621,7 @@ public struct OmuxConfigLoader {
         var agentSessionsEnabled = config.agentSessions.enabled
         var agentSessionsPreviewEnabled = config.agentSessions.previewEnabled
         var agentSessionsIndexOnLaunch = config.agentSessions.indexOnLaunch
+        var agentSessionsCollapsedToggleVisible = config.agentSessions.collapsedToggleVisible
         var agentSessionsIncludedAgents = config.agentSessions.includedAgents
         var agentSessionsExcludedPaths = config.agentSessions.excludedPaths
         var agentSessionsMaxPreviewBytes = config.agentSessions.maxPreviewBytes
@@ -1653,6 +1659,12 @@ public struct OmuxConfigLoader {
                         continue
                     }
                     agentSessionsIndexOnLaunch = value
+                case "collapsed_toggle_visible":
+                    guard let value = entry.value.boolValue else {
+                        diagnostics.append(OmuxConfigDiagnostic(severity: .error, message: "\(tableName).collapsed_toggle_visible must be a boolean.", filePath: sourceURL.path, line: entry.line))
+                        continue
+                    }
+                    agentSessionsCollapsedToggleVisible = value
                 case "included_agents":
                     guard let values = stringArray(from: entry.value),
                           values.allSatisfy(supportedAgentSessionAgents.contains)
@@ -1848,6 +1860,7 @@ public struct OmuxConfigLoader {
                 enabled: agentSessionsEnabled,
                 previewEnabled: agentSessionsPreviewEnabled,
                 indexOnLaunch: agentSessionsIndexOnLaunch,
+                collapsedToggleVisible: agentSessionsCollapsedToggleVisible,
                 includedAgents: agentSessionsIncludedAgents,
                 excludedPaths: agentSessionsExcludedPaths,
                 maxPreviewBytes: agentSessionsMaxPreviewBytes,

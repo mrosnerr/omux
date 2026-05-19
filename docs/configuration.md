@@ -279,6 +279,7 @@ Agent Sessions indexes local coding-agent history so OpenMUX can search, resume,
 enabled = true
 preview_enabled = true
 index_on_launch = true
+collapsed_toggle_visible = true
 included_agents = ["copilot", "codex", "gemini"]
 excluded_paths = []
 max_preview_bytes = 1048576
@@ -294,6 +295,7 @@ resume_command = "copilot --resume {session_id}"
 | `enabled` | boolean | Shows Agent Sessions UI and enables indexing. Defaults to `true`. |
 | `preview_enabled` | boolean | Reserved for preview-capable Agent Sessions surfaces. Defaults to `true`. |
 | `index_on_launch` | boolean | Rebuilds the local index when OpenMUX starts. Defaults to `true`. |
+| `collapsed_toggle_visible` | boolean | Shows the collapsed Agent Sessions toggle and reserves a small top-right gutter for it. Set to `false` to remove both the gutter and icon, leaving keyboard shortcuts, menu actions, and `omux agent-sessions open` as the way to reopen the sidebar. Defaults to `true`. |
 | `included_agents` | array of strings | Agents to index. Common values are `copilot`, `codex`, `gemini`, `claude`, `opencode`, `pi`, and `rovodev`. |
 | `excluded_paths` | array of strings | Paths to skip while indexing. |
 | `max_preview_bytes` | integer | Reserved maximum preview payload size. |

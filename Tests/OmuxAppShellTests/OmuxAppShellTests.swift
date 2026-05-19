@@ -1,6 +1,7 @@
 import AppKit
 import OmuxConfig
 import OmuxTheme
+import OmuxVault
 import Foundation
 import WebKit
 import XCTest
@@ -24,30 +25,15 @@ final class OmuxAppShellTests: XCTestCase {
         }
     }
 
-    private func requestControlMethod(
+    private static func requestControlMethod(
         _ method: ControlMethod,
         socketPath: String,
         params: RPCValue? = nil
-    ) throws -> JSONRPCResponse {
-        let requestFinished = expectation(description: "control-plane \(method.rawValue) request finished")
-        let responseBox = LockedBox<JSONRPCResponse?>(nil)
-        let errorBox = LockedBox<Error?>(nil)
-        DispatchQueue.global(qos: .userInitiated).async {
-            do {
-                let client = OmuxControlClient(socketPath: socketPath)
-                responseBox.value = try client.request(method: method, params: params)
-            } catch {
-                errorBox.value = error
-            }
-            requestFinished.fulfill()
-        }
-
-        wait(for: [requestFinished], timeout: 3)
-
-        if let error = errorBox.value {
-            throw error
-        }
-        return try XCTUnwrap(responseBox.value)
+    ) async throws -> JSONRPCResponse {
+        try await Task.detached(priority: .userInitiated) {
+            let client = OmuxControlClient(socketPath: socketPath)
+            return try client.request(method: method, params: params)
+        }.value
     }
 
     private func versionFixture(version: String) throws -> URL {
@@ -3007,6 +2993,48 @@ final class OmuxAppShellTests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceWindowShowsCollapsedAgentSessionsToggleByDefault() throws {
+        let controller = WorkspaceController(
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
+            hookRunner: ExternalHookRunner()
+        )
+
+        let workspace = try controller.openWorkspace(at: "/tmp")
+        let windowController = WorkspaceWindowController(
+            workspace: workspace,
+            controller: controller,
+            vaultConfiguration: VaultConfiguration(enabled: true)
+        )
+        let rootView = try XCTUnwrap(windowController.window?.contentViewController?.view)
+        rootView.layoutSubtreeIfNeeded()
+
+        let toggle = findViews(ofType: NSButton.self, in: rootView)
+            .first { $0.identifier?.rawValue == "vault-sidebar-toggle" }
+        XCTAssertNotNil(toggle)
+    }
+
+    @MainActor
+    func testWorkspaceWindowOmitsCollapsedAgentSessionsToggleWhenConfigured() throws {
+        let controller = WorkspaceController(
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
+            hookRunner: ExternalHookRunner()
+        )
+
+        let workspace = try controller.openWorkspace(at: "/tmp")
+        let windowController = WorkspaceWindowController(
+            workspace: workspace,
+            controller: controller,
+            vaultConfiguration: VaultConfiguration(enabled: true, collapsedToggleVisible: false)
+        )
+        let rootView = try XCTUnwrap(windowController.window?.contentViewController?.view)
+        rootView.layoutSubtreeIfNeeded()
+
+        let toggle = findViews(ofType: NSButton.self, in: rootView)
+            .first { $0.identifier?.rawValue == "vault-sidebar-toggle" }
+        XCTAssertNil(toggle)
+    }
+
+    @MainActor
     func testWorkspaceWindowMovesTabNavigationIntoSidebar() throws {
         let controller = WorkspaceController(
             bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
@@ -5111,7 +5139,7 @@ final class OmuxAppShellTests: XCTestCase {
     }
 
     @MainActor
-    func testControlPlaneOpenWorkspaceWithoutPathUsesConfiguredDefaultRoot() throws {
+    func testControlPlaneOpenWorkspaceWithoutPathUsesConfiguredDefaultRoot() async throws {
         let runtime = ActionEmittingGhosttyRuntime()
         let bridge = GhosttyTerminalBridge(runtime: runtime)
         let controller = WorkspaceController(
@@ -5145,28 +5173,14 @@ final class OmuxAppShellTests: XCTestCase {
 
         try service.start()
 
-        let requestFinished = expectation(description: "control-plane open request finished")
-        let responseBox = LockedBox<JSONRPCResponse?>(nil)
-        let errorBox = LockedBox<Error?>(nil)
-        DispatchQueue.global(qos: .userInitiated).async {
-            do {
-                let client = OmuxControlClient(socketPath: socketURL.path(percentEncoded: false))
-                responseBox.value = try client.request(method: .openWorkspace, params: nil)
-            } catch {
-                errorBox.value = error
-            }
-            requestFinished.fulfill()
-        }
+        let response = try await Self.requestControlMethod(.openWorkspace, socketPath: socketURL.path(percentEncoded: false))
 
-        wait(for: [requestFinished], timeout: 3)
-
-        XCTAssertNil(errorBox.value)
-        XCTAssertNil(responseBox.value?.error)
+        XCTAssertNil(response.error)
         XCTAssertEqual(controller.activeWorkspace()?.rootPath, "/tmp")
     }
 
     @MainActor
-    func testControlPlaneNavigationMethodsReturnFocusedTerminalContext() throws {
+    func testControlPlaneNavigationMethodsReturnFocusedTerminalContext() async throws {
         let runtime = ActionEmittingGhosttyRuntime()
         let bridge = GhosttyTerminalBridge(runtime: runtime)
         let controller = WorkspaceController(
@@ -5204,30 +5218,30 @@ final class OmuxAppShellTests: XCTestCase {
         let withPaneTab = try XCTUnwrap(controller.createPaneTab())
         let secondPaneID = try XCTUnwrap(withPaneTab.focusedPane?.id)
 
-        let nextTabResponse = try requestControlMethod(.focusNextPaneTab, socketPath: socketURL.path(percentEncoded: false))
+        let nextTabResponse = try await Self.requestControlMethod(.focusNextPaneTab, socketPath: socketURL.path(percentEncoded: false))
         XCTAssertNil(nextTabResponse.error)
         XCTAssertEqual(targetPaneID(in: nextTabResponse), firstPaneID)
 
-        let previousTabResponse = try requestControlMethod(.focusPreviousPaneTab, socketPath: socketURL.path(percentEncoded: false))
+        let previousTabResponse = try await Self.requestControlMethod(.focusPreviousPaneTab, socketPath: socketURL.path(percentEncoded: false))
         XCTAssertNil(previousTabResponse.error)
         XCTAssertEqual(targetPaneID(in: previousTabResponse), secondPaneID)
 
-        let singleVisiblePaneResponse = try requestControlMethod(.focusNextPane, socketPath: socketURL.path(percentEncoded: false))
+        let singleVisiblePaneResponse = try await Self.requestControlMethod(.focusNextPane, socketPath: socketURL.path(percentEncoded: false))
         XCTAssertEqual(singleVisiblePaneResponse.error?.code, 409)
 
         let splitWorkspace = try XCTUnwrap(controller.splitFocusedPane(axis: .columns))
         let splitPaneID = try XCTUnwrap(splitWorkspace.focusedPane?.id)
-        let nextPaneResponse = try requestControlMethod(.focusNextPane, socketPath: socketURL.path(percentEncoded: false))
+        let nextPaneResponse = try await Self.requestControlMethod(.focusNextPane, socketPath: socketURL.path(percentEncoded: false))
         XCTAssertNil(nextPaneResponse.error)
         XCTAssertEqual(targetPaneID(in: nextPaneResponse), secondPaneID)
 
-        let previousPaneResponse = try requestControlMethod(.focusPreviousPane, socketPath: socketURL.path(percentEncoded: false))
+        let previousPaneResponse = try await Self.requestControlMethod(.focusPreviousPane, socketPath: socketURL.path(percentEncoded: false))
         XCTAssertNil(previousPaneResponse.error)
         XCTAssertEqual(targetPaneID(in: previousPaneResponse), splitPaneID)
     }
 
     @MainActor
-    func testControlPlaneCreatePaneTabAcceptsWorkingDirectoryTitleAndPaneStack() throws {
+    func testControlPlaneCreatePaneTabAcceptsWorkingDirectoryTitleAndPaneStack() async throws {
         let runtime = ActionEmittingGhosttyRuntime()
         let bridge = GhosttyTerminalBridge(runtime: runtime)
         let controller = WorkspaceController(
@@ -5261,7 +5275,7 @@ final class OmuxAppShellTests: XCTestCase {
 
         let workspace = try controller.openWorkspace(at: "/tmp/project")
         let stackID = try XCTUnwrap(workspace.focusedPaneStack?.id)
-        let response = try requestControlMethod(
+        let response = try await Self.requestControlMethod(
             .createPaneTab,
             socketPath: socketURL.path(percentEncoded: false),
             params: .object([
@@ -5279,7 +5293,7 @@ final class OmuxAppShellTests: XCTestCase {
     }
 
     @MainActor
-    func testControlPlaneClosesWorkspaceAndRemovesTargetedPane() throws {
+    func testControlPlaneClosesWorkspaceAndRemovesTargetedPane() async throws {
         let runtime = ActionEmittingGhosttyRuntime()
         let bridge = GhosttyTerminalBridge(runtime: runtime)
         let controller = WorkspaceController(
@@ -5315,7 +5329,7 @@ final class OmuxAppShellTests: XCTestCase {
 
         let firstWorkspace = try controller.openWorkspace(at: "/tmp")
         let secondWorkspace = try controller.createWorkspace()
-        let closeExplicitResponse = try requestControlMethod(
+        let closeExplicitResponse = try await Self.requestControlMethod(
             .closeWorkspace,
             socketPath: socketURL.path(percentEncoded: false),
             params: .object(["workspaceID": .string(secondWorkspace.id.rawValue)])
@@ -5323,13 +5337,13 @@ final class OmuxAppShellTests: XCTestCase {
         XCTAssertNil(closeExplicitResponse.error)
         XCTAssertEqual(controller.allWorkspaces().map(\.id), [firstWorkspace.id])
 
-        let closeLastResponse = try requestControlMethod(.closeWorkspace, socketPath: socketURL.path(percentEncoded: false))
+        let closeLastResponse = try await Self.requestControlMethod(.closeWorkspace, socketPath: socketURL.path(percentEncoded: false))
         XCTAssertEqual(closeLastResponse.error?.code, 409)
 
         let splitWorkspace = try XCTUnwrap(controller.splitFocusedPane(axis: .columns))
         let firstPaneID = try XCTUnwrap(splitWorkspace.focusedTab?.visiblePaneIDs.first)
         let secondPaneID = try XCTUnwrap(splitWorkspace.focusedPane?.id)
-        let removePaneResponse = try requestControlMethod(
+        let removePaneResponse = try await Self.requestControlMethod(
             .removePane,
             socketPath: socketURL.path(percentEncoded: false),
             params: .object(["target": ControlPlaneTerminalTarget.pane(firstPaneID).rpcValue])
@@ -5339,7 +5353,7 @@ final class OmuxAppShellTests: XCTestCase {
         XCTAssertEqual(targetPaneID(in: removePaneResponse), firstPaneID)
         XCTAssertEqual(controller.activeWorkspace()?.focusedTab?.panes.map(\.id), [secondPaneID])
 
-        let invalidPaneResponse = try requestControlMethod(
+        let invalidPaneResponse = try await Self.requestControlMethod(
             .removePane,
             socketPath: socketURL.path(percentEncoded: false),
             params: .object(["target": ControlPlaneTerminalTarget.pane(PaneID(rawValue: "missing")).rpcValue])
@@ -5348,7 +5362,7 @@ final class OmuxAppShellTests: XCTestCase {
     }
 
     @MainActor
-    func testControlPlanePaneStatusUpdatesProgressOrbStateAndPublishesEvent() throws {
+    func testControlPlanePaneStatusUpdatesProgressOrbStateAndPublishesEvent() async throws {
         let runtime = ActionEmittingGhosttyRuntime()
         let bridge = GhosttyTerminalBridge(runtime: runtime)
         let controller = WorkspaceController(
@@ -5390,7 +5404,7 @@ final class OmuxAppShellTests: XCTestCase {
 
         let workspace = try controller.openWorkspace(at: "/tmp")
         let pane = try XCTUnwrap(workspace.focusedPane)
-        let response = try requestControlMethod(
+        let response = try await Self.requestControlMethod(
             .paneStatus,
             socketPath: socketURL.path(percentEncoded: false),
             params: ControlPlanePaneStatusRequest(
@@ -5410,7 +5424,7 @@ final class OmuxAppShellTests: XCTestCase {
         XCTAssertEqual(publishedEvent?.payload.objectValue?["message"], .string("tests failed"))
         XCTAssertEqual(publishedEvent?.payload.objectValue?["source"], .string("hook.codex"))
 
-        let missingResponse = try requestControlMethod(
+        let missingResponse = try await Self.requestControlMethod(
             .paneStatus,
             socketPath: socketURL.path(percentEncoded: false),
             params: ControlPlanePaneStatusRequest(
@@ -5423,7 +5437,7 @@ final class OmuxAppShellTests: XCTestCase {
     }
 
     @MainActor
-    func testControlPlaneManagesExtensionPaneLifecycleAndRejectsTerminalClose() throws {
+    func testControlPlaneManagesExtensionPaneLifecycleAndRejectsTerminalClose() async throws {
         let runtime = ActionEmittingGhosttyRuntime()
         let bridge = GhosttyTerminalBridge(runtime: runtime)
         let controller = WorkspaceController(
@@ -5457,7 +5471,7 @@ final class OmuxAppShellTests: XCTestCase {
 
         let workspace = try controller.openWorkspace(at: "/tmp")
         let terminalPaneID = try XCTUnwrap(workspace.focusedPane?.id)
-        let createResponse = try requestControlMethod(
+        let createResponse = try await Self.requestControlMethod(
             .createExtensionPane,
             socketPath: socketURL.path(percentEncoded: false),
             params: .object([
@@ -5476,7 +5490,7 @@ final class OmuxAppShellTests: XCTestCase {
         }
 
         let extensionPaneID = PaneID(rawValue: extensionPaneIDRaw)
-        let updateResponse = try requestControlMethod(
+        let updateResponse = try await Self.requestControlMethod(
             .updateExtensionPane,
             socketPath: socketURL.path(percentEncoded: false),
             params: .object([
@@ -5493,14 +5507,14 @@ final class OmuxAppShellTests: XCTestCase {
             .error
         )
 
-        let closeTerminalResponse = try requestControlMethod(
+        let closeTerminalResponse = try await Self.requestControlMethod(
             .closeExtensionPane,
             socketPath: socketURL.path(percentEncoded: false),
             params: .object(["paneID": .string(terminalPaneID.rawValue)])
         )
         XCTAssertEqual(closeTerminalResponse.error?.code, 400)
 
-        let closeExtensionResponse = try requestControlMethod(
+        let closeExtensionResponse = try await Self.requestControlMethod(
             .closeExtensionPane,
             socketPath: socketURL.path(percentEncoded: false),
             params: .object(["paneID": .string(extensionPaneID.rawValue)])
@@ -5510,7 +5524,7 @@ final class OmuxAppShellTests: XCTestCase {
     }
 
     @MainActor
-    func testControlPlaneCreatesExtensionPaneModal() throws {
+    func testControlPlaneCreatesExtensionPaneModal() async throws {
         let runtime = ActionEmittingGhosttyRuntime()
         let bridge = GhosttyTerminalBridge(runtime: runtime)
         let controller = WorkspaceController(
@@ -5543,7 +5557,7 @@ final class OmuxAppShellTests: XCTestCase {
         try service.start()
         _ = try controller.openWorkspace(at: "/tmp")
 
-        let createResponse = try requestControlMethod(
+        let createResponse = try await Self.requestControlMethod(
             .createExtensionPane,
             socketPath: socketURL.path(percentEncoded: false),
             params: .object([
@@ -5572,7 +5586,7 @@ final class OmuxAppShellTests: XCTestCase {
     }
 
     @MainActor
-    func testControlPlaneListsFloatingModalTerminalSessionsAndFocus() throws {
+    func testControlPlaneListsFloatingModalTerminalSessionsAndFocus() async throws {
         let runtime = ActionEmittingGhosttyRuntime()
         let bridge = GhosttyTerminalBridge(runtime: runtime)
         let controller = WorkspaceController(
@@ -5614,8 +5628,8 @@ final class OmuxAppShellTests: XCTestCase {
         let modalID = try XCTUnwrap(modalWorkspace.floatingPaneModals.first?.id)
         let dockedPaneID = try XCTUnwrap(modalWorkspace.tabs.first?.focusedPane?.id)
 
-        let sessionsResponse = try requestControlMethod(.listSessions, socketPath: socketURL.path(percentEncoded: false))
-        let panesResponse = try requestControlMethod(.listPanes, socketPath: socketURL.path(percentEncoded: false))
+        let sessionsResponse = try await Self.requestControlMethod(.listSessions, socketPath: socketURL.path(percentEncoded: false))
+        let panesResponse = try await Self.requestControlMethod(.listPanes, socketPath: socketURL.path(percentEncoded: false))
 
         guard case .array(let sessionValues)? = sessionsResponse.result,
               case .array(let paneValues)? = panesResponse.result
@@ -5650,7 +5664,7 @@ final class OmuxAppShellTests: XCTestCase {
     }
 
     @MainActor
-    func testControlPlaneWorkspaceMutationsRunOnMainThreadForHookDrivenRequests() throws {
+    func testControlPlaneWorkspaceMutationsRunOnMainThreadForHookDrivenRequests() async throws {
         let runtime = MainThreadRecordingGhosttyRuntime()
         let bridge = GhosttyTerminalBridge(runtime: runtime)
         let controller = WorkspaceController(
@@ -5684,33 +5698,19 @@ final class OmuxAppShellTests: XCTestCase {
         try service.start()
         _ = try controller.openWorkspace(at: "/tmp")
 
-        let requestFinished = expectation(description: "control-plane split request finished")
-        let responseBox = LockedBox<JSONRPCResponse?>(nil)
-        let errorBox = LockedBox<Error?>(nil)
-        DispatchQueue.global(qos: .userInitiated).async {
-            do {
-                let client = OmuxControlClient(socketPath: socketURL.path(percentEncoded: false))
-                let response = try client.request(
-                    method: .splitPane,
-                    params: .object(["axis": .string(PaneSplitAxis.rows.rawValue)])
-                )
-                responseBox.value = response
-            } catch {
-                errorBox.value = error
-            }
-            requestFinished.fulfill()
-        }
+        let response = try await Self.requestControlMethod(
+            .splitPane,
+            socketPath: socketURL.path(percentEncoded: false),
+            params: .object(["axis": .string(PaneSplitAxis.rows.rawValue)])
+        )
 
-        wait(for: [requestFinished], timeout: 3)
-
-        XCTAssertNil(errorBox.value)
-        XCTAssertNil(responseBox.value?.error)
+        XCTAssertNil(response.error)
         XCTAssertEqual(runtime.nonMainThreadOperations, [])
         XCTAssertEqual(controller.activeWorkspace()?.focusedTab?.panes.count, 2)
     }
 
     @MainActor
-    func testControlPlaneTerminalHistoryReturnsPaneMetadataAndInvalidPaneError() throws {
+    func testControlPlaneTerminalHistoryReturnsPaneMetadataAndInvalidPaneError() async throws {
         let runtime = ActionEmittingGhosttyRuntime()
         let bridge = GhosttyTerminalBridge(runtime: runtime)
         let controller = WorkspaceController(
@@ -5747,31 +5747,18 @@ final class OmuxAppShellTests: XCTestCase {
         let surfaceID = try XCTUnwrap(bridge.surface(for: pane.id)?.runtimeSurfaceID)
         runtime.scrollbackBySurface[surfaceID] = "one\ntwo\nthree"
 
-        let requestFinished = expectation(description: "history request finished")
-        let responseBox = LockedBox<JSONRPCResponse?>(nil)
-        let errorBox = LockedBox<Error?>(nil)
-        DispatchQueue.global(qos: .userInitiated).async {
-            do {
-                let client = OmuxControlClient(socketPath: socketURL.path(percentEncoded: false))
-                responseBox.value = try client.request(
-                    method: .terminalHistory,
-                    params: .object([
-                        "paneID": .string(pane.id.rawValue),
-                        "maxLines": .integer(2),
-                        "maxBytes": .integer(1_000),
-                    ])
-                )
-            } catch {
-                errorBox.value = error
-            }
-            requestFinished.fulfill()
-        }
+        let response = try await Self.requestControlMethod(
+            .terminalHistory,
+            socketPath: socketURL.path(percentEncoded: false),
+            params: .object([
+                "paneID": .string(pane.id.rawValue),
+                "maxLines": .integer(2),
+                "maxBytes": .integer(1_000),
+            ])
+        )
 
-        wait(for: [requestFinished], timeout: 3)
-
-        XCTAssertNil(errorBox.value)
-        XCTAssertNil(responseBox.value?.error)
-        guard case .object(let result)? = responseBox.value?.result,
+        XCTAssertNil(response.error)
+        guard case .object(let result)? = response.result,
               case .array(let items)? = result["items"],
               case .object(let item)? = items.first
         else {
@@ -5782,23 +5769,13 @@ final class OmuxAppShellTests: XCTestCase {
         XCTAssertEqual(item["text"], .string("two\nthree"))
         XCTAssertEqual(item["truncated"], .bool(true))
 
-        let invalidRequestFinished = expectation(description: "invalid history request finished")
-        let invalidResponseBox = LockedBox<JSONRPCResponse?>(nil)
-        DispatchQueue.global(qos: .userInitiated).async {
-            do {
-                invalidResponseBox.value = try OmuxControlClient(socketPath: socketURL.path(percentEncoded: false)).request(
-                    method: .terminalHistory,
-                    params: .object(["paneID": .string("missing")])
-                )
-            } catch {
-                errorBox.value = error
-            }
-            invalidRequestFinished.fulfill()
-        }
-        wait(for: [invalidRequestFinished], timeout: 3)
+        let invalidResponse = try await Self.requestControlMethod(
+            .terminalHistory,
+            socketPath: socketURL.path(percentEncoded: false),
+            params: .object(["paneID": .string("missing")])
+        )
 
-        XCTAssertNil(errorBox.value)
-        XCTAssertEqual(invalidResponseBox.value?.error?.code, 404)
+        XCTAssertEqual(invalidResponse.error?.code, 404)
     }
 
     func testPaneTabTitleFormatterKeepsShortTitlesUnchanged() {

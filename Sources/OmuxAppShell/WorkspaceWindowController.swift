@@ -11,6 +11,7 @@ private enum ShellLayoutMetrics {
     static let sidebarWidth: CGFloat = 224
     static let vaultSidebarWidth: CGFloat = 280
     static let vaultToggleSize: CGFloat = 28
+    static let vaultToggleReservedWidth: CGFloat = 32
     static let outerPadding: CGFloat = 0
     static let interRegionSpacing: CGFloat = 0
     static let canvasPadding: CGFloat = 0
@@ -309,6 +310,7 @@ final class WorkspaceShellViewController: NSViewController {
 
         vaultToggleButton.isBordered = false
         vaultToggleButton.image = NSImage(systemSymbolName: "sidebar.right", accessibilityDescription: "Toggle Agent Sessions")
+        vaultToggleButton.identifier = NSUserInterfaceItemIdentifier("vault-sidebar-toggle")
         vaultToggleButton.target = self
         vaultToggleButton.action = #selector(toggleVaultSidebarPressed)
         vaultToggleButton.translatesAutoresizingMaskIntoConstraints = false
@@ -317,7 +319,9 @@ final class WorkspaceShellViewController: NSViewController {
         view.addSubview(mainColumn)
         if vaultConfiguration.enabled {
             view.addSubview(vaultSidebarView)
-            view.addSubview(vaultToggleButton)
+            if vaultConfiguration.collapsedToggleVisible {
+                view.addSubview(vaultToggleButton)
+            }
         }
         view.addSubview(shellOverlayHostView)
 
@@ -334,7 +338,10 @@ final class WorkspaceShellViewController: NSViewController {
                 equalTo: vaultSidebarView.leadingAnchor,
                 constant: -ShellLayoutMetrics.interRegionSpacing
             )
-            : mainColumn.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -ShellLayoutMetrics.outerPadding)
+            : mainColumn.trailingAnchor.constraint(
+                equalTo: view.trailingAnchor,
+                constant: -ShellLayoutMetrics.outerPadding - reservedWidthForCollapsedVaultToggle
+            )
         self.sidebarWidthConstraint = sidebarWidthConstraint
         self.vaultSidebarWidthConstraint = vaultSidebarWidthConstraint
         self.mainColumnLeadingConstraint = mainColumnLeadingConstraint
@@ -355,16 +362,19 @@ final class WorkspaceShellViewController: NSViewController {
 
         if vaultConfiguration.enabled, let vaultSidebarWidthConstraint {
             constraints += [
-            vaultSidebarView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            vaultSidebarView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            vaultSidebarView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            vaultSidebarWidthConstraint,
-
-            vaultToggleButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 10),
-            vaultToggleButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -10),
-            vaultToggleButton.widthAnchor.constraint(equalToConstant: ShellLayoutMetrics.vaultToggleSize),
-            vaultToggleButton.heightAnchor.constraint(equalToConstant: ShellLayoutMetrics.vaultToggleSize),
+                vaultSidebarView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+                vaultSidebarView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+                vaultSidebarView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+                vaultSidebarWidthConstraint,
             ]
+            if vaultConfiguration.collapsedToggleVisible {
+                constraints += [
+                    vaultToggleButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 10),
+                    vaultToggleButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -4),
+                    vaultToggleButton.widthAnchor.constraint(equalToConstant: ShellLayoutMetrics.vaultToggleSize),
+                    vaultToggleButton.heightAnchor.constraint(equalToConstant: ShellLayoutMetrics.vaultToggleSize),
+                ]
+            }
         }
 
         constraints += [
@@ -1056,11 +1066,23 @@ final class WorkspaceShellViewController: NSViewController {
     private func applyVaultSidebarVisibility() {
         let isVisible = vaultConfiguration.enabled && isVaultSidebarVisible
         vaultSidebarView.isHidden = !isVisible
-        vaultToggleButton.isHidden = !vaultConfiguration.enabled || isVisible
+        vaultToggleButton.isHidden = !vaultConfiguration.enabled || !vaultConfiguration.collapsedToggleVisible || isVisible
         vaultToggleButton.contentTintColor = currentTheme.shell.textMuted
         vaultSidebarWidthConstraint?.constant = isVisible ? ShellLayoutMetrics.vaultSidebarWidth : 0
-        mainColumnTrailingConstraint?.constant = isVisible ? -ShellLayoutMetrics.interRegionSpacing : 0
+        mainColumnTrailingConstraint?.constant = isVisible
+            ? -ShellLayoutMetrics.interRegionSpacing
+            : -ShellLayoutMetrics.outerPadding - reservedWidthForCollapsedVaultToggle
         view.layoutSubtreeIfNeeded()
+    }
+
+    private var reservedWidthForCollapsedVaultToggle: CGFloat {
+        guard vaultConfiguration.enabled else {
+            return 0
+        }
+        guard vaultConfiguration.collapsedToggleVisible else {
+            return 0
+        }
+        return ShellLayoutMetrics.vaultToggleReservedWidth
     }
 
     private func configureVaultSourceIndexing() {
@@ -6580,7 +6602,6 @@ private final class PaneTabButton: NSControl, NSTextFieldDelegate {
 
         let initialLocation = convert(event.locationInWindow, from: nil)
         var didStartDragging = false
-        var didFire = false
 
         // Wait up to doubleClickInterval before committing to a single-click press,
         // so a second click can still be detected as a double-click.
@@ -6604,10 +6625,6 @@ private final class PaneTabButton: NSControl, NSTextFieldDelegate {
                 return
 
             case .leftMouseDragged:
-                if !didFire {
-                    didFire = true
-                    onPress?()
-                }
                 let location = convert(nextEvent.locationInWindow, from: nil)
                 let delta = hypot(location.x - initialLocation.x, location.y - initialLocation.y)
                 guard delta >= 4 else { continue }
@@ -6621,7 +6638,7 @@ private final class PaneTabButton: NSControl, NSTextFieldDelegate {
             case .leftMouseUp:
                 if didStartDragging {
                     onDragEnded?(self, nextEvent)
-                } else if !didFire {
+                } else {
                     onPress?()
                 }
                 return
@@ -6633,7 +6650,7 @@ private final class PaneTabButton: NSControl, NSTextFieldDelegate {
         }
 
         // Deadline elapsed without a second click — commit single-click press.
-        if !didStartDragging && !didFire {
+        if !didStartDragging {
             onPress?()
         }
     }
