@@ -1843,6 +1843,13 @@ public final class WorkspaceController: @unchecked Sendable {
         lock.lock()
         var updatedWorkspace: Workspace?
         for workspaceIndex in workspaces.indices {
+            guard let existingAlias = workspaces[workspaceIndex].panes.first(where: { $0.id == paneID })?.userAlias else {
+                continue
+            }
+            if existingAlias == trimmed {
+                lock.unlock()
+                return nil
+            }
             if workspaces[workspaceIndex].updatePane(paneID, transform: { $0.userAlias = trimmed }) {
                 updatedWorkspace = workspaces[workspaceIndex]
                 break
@@ -1869,6 +1876,13 @@ public final class WorkspaceController: @unchecked Sendable {
         lock.lock()
         var updatedWorkspace: Workspace?
         for workspaceIndex in workspaces.indices {
+            guard let pane = workspaces[workspaceIndex].panes.first(where: { $0.id == paneID }) else {
+                continue
+            }
+            if pane.userAlias == nil {
+                lock.unlock()
+                return nil
+            }
             if workspaces[workspaceIndex].updatePane(paneID, transform: { $0.userAlias = nil }) {
                 updatedWorkspace = workspaces[workspaceIndex]
                 break
@@ -3132,16 +3146,17 @@ public final class WorkspaceController: @unchecked Sendable {
                 }
 
                 if shouldApplyTerminalDisplayTitleUpdateLocked(for: event.paneID, at: Date()) {
-                    deliveredTerminalDisplayTitleByPane[event.paneID] = displayTitle
-                    lastTerminalDisplayTitleUpdateByPane[event.paneID] = Date()
                     // When a user alias is set, store the title internally but do not
                     // promote it to pane.title (which drives the tab display).
                     if pane.userAlias == nil,
-                       Self.shouldPromoteTerminalDisplayTitleToPaneTitle(displayTitle),
-                       pane.title != displayTitle {
-                        pane.title = displayTitle
+                       Self.shouldPromoteTerminalDisplayTitleToPaneTitle(displayTitle) {
+                        if pane.title != displayTitle {
+                            pane.title = displayTitle
+                        }
+                        deliveredTerminalDisplayTitleByPane[event.paneID] = displayTitle
+                        lastTerminalDisplayTitleUpdateByPane[event.paneID] = Date()
+                        shouldUpdateWorkspace = true
                     }
-                    shouldUpdateWorkspace = true
                 } else {
                     pendingTerminalDisplayTitlePaneIDs.insert(event.paneID)
                     shouldScheduleTrailingTitleUpdate = true

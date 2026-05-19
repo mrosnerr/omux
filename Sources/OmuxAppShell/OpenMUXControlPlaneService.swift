@@ -1048,6 +1048,8 @@ private extension Pane {
             "pluginID": extensionPane.map { .string($0.pluginID) } ?? .null,
             "presentation": extensionPane.map { .string($0.presentationStyle.rawValue) } ?? .null,
             "title": .string(title),
+            "userAlias": userAlias.map { .string($0) } ?? .null,
+            "hasUserAlias": .bool(hasUserAlias),
             "workingDirectory": terminalSession.map { .string($0.workingDirectory) } ?? .null,
             "reportedWorkingDirectory": terminalState.reportedWorkingDirectory.map(RPCValue.string) ?? .null,
             "progress": terminalState.progress.rpcValue,
