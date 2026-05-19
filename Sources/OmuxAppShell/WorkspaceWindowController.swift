@@ -6021,8 +6021,10 @@ final class PaneHeaderView: NSView {
     private let tabStrip = NSStackView()
     private let tabScrollView = NSScrollView()
     private var paneTabButtons: [PaneTabButton] = []
-    private var focusedPaneID: PaneID?
-    private var hasScrolledActiveTabIntoView = false
+    private let inlineAddButton = ChromePillButton()
+    private let pinnedAddButton = ChromePillButton()
+    private var contentTrailingToSuperviewConstraint: NSLayoutConstraint?
+    private var contentTrailingToPinnedConstraint: NSLayoutConstraint?
 
     init(
         paneStack: PaneStack,
@@ -6047,22 +6049,20 @@ final class PaneHeaderView: NSView {
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
         layer?.backgroundColor = theme.shell.paneHeaderBackground.cgColor
-        focusedPaneID = paneStack.focusedPaneID
 
         let content = NSStackView()
         content.orientation = .horizontal
         content.alignment = .centerY
-        content.spacing = 6
+        content.spacing = 0
         content.translatesAutoresizingMaskIntoConstraints = false
 
         tabStrip.orientation = .horizontal
         tabStrip.alignment = .centerY
         tabStrip.spacing = 6
-        tabStrip.distribution = .fill
         tabStrip.translatesAutoresizingMaskIntoConstraints = false
         tabStrip.identifier = NSUserInterfaceItemIdentifier("pane-tab-strip-\(paneStack.id.rawValue)")
         tabStrip.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        tabStrip.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        tabStrip.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
 
         for pane in paneStack.panes {
             let button = PaneTabButton(
@@ -6080,10 +6080,7 @@ final class PaneHeaderView: NSView {
                     try? onClosePane(pane.id)
                 }
             )
-            button.onPress = { [weak self] in
-                self?.optimisticallySelect(paneID: pane.id)
-                onSelectPaneTab(pane.id)
-            }
+            button.onPress = { onSelectPaneTab(pane.id) }
             button.contextMenuProvider = { contextMenuProvider(pane) }
             if let onRenamePaneTab {
                 button.onRename = { newName in onRenamePaneTab(pane.id, newName) }
@@ -6103,10 +6100,23 @@ final class PaneHeaderView: NSView {
             }
             tabStrip.addArrangedSubview(button)
             paneTabButtons.append(button)
-
         }
 
-        // Scroll view wraps the tab strip so tabs can overflow horizontally.
+        inlineAddButton.configure(symbolName: "plus", accessibilityLabel: "Add pane tab", active: false, theme: theme, compact: true)
+        inlineAddButton.identifier = NSUserInterfaceItemIdentifier("pane-tab-add-\(paneStack.id.rawValue)")
+        inlineAddButton.onPress = {
+            try? onCreatePaneTab()
+        }
+        tabStrip.addArrangedSubview(inlineAddButton)
+
+        pinnedAddButton.configure(symbolName: "plus", accessibilityLabel: "Add pane tab", active: false, theme: theme, compact: true)
+        pinnedAddButton.identifier = NSUserInterfaceItemIdentifier("pane-tab-add-pinned-\(paneStack.id.rawValue)")
+        pinnedAddButton.onPress = {
+            try? onCreatePaneTab()
+        }
+        pinnedAddButton.translatesAutoresizingMaskIntoConstraints = false
+        pinnedAddButton.isHidden = true
+
         tabScrollView.translatesAutoresizingMaskIntoConstraints = false
         tabScrollView.hasHorizontalScroller = false
         tabScrollView.hasVerticalScroller = false
@@ -6123,75 +6133,57 @@ final class PaneHeaderView: NSView {
             tabStrip.topAnchor.constraint(equalTo: tabScrollView.contentView.topAnchor),
             tabStrip.bottomAnchor.constraint(equalTo: tabScrollView.contentView.bottomAnchor),
             tabStrip.leadingAnchor.constraint(equalTo: tabScrollView.contentView.leadingAnchor),
-            tabStrip.trailingAnchor.constraint(equalTo: tabScrollView.contentView.trailingAnchor),
             tabScrollView.heightAnchor.constraint(equalToConstant: ShellLayoutMetrics.paneHeaderHeight - 1),
         ])
 
-        let addButton = ChromePillButton()
-        addButton.configure(symbolName: "plus", accessibilityLabel: "Add pane tab", active: false, theme: theme, compact: true)
-        addButton.identifier = NSUserInterfaceItemIdentifier("pane-tab-add-\(paneStack.id.rawValue)")
-        addButton.translatesAutoresizingMaskIntoConstraints = false
-        addButton.onPress = {
-            try? onCreatePaneTab()
-        }
+        content.addArrangedSubview(tabScrollView)
+        addSubview(pinnedAddButton)
+        addSubview(content)
 
-        addSubview(tabScrollView)
-        addSubview(addButton)
+        let trailingToSuperview = content.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8)
+        let trailingToPinned = content.trailingAnchor.constraint(equalTo: pinnedAddButton.leadingAnchor, constant: -4)
+        self.contentTrailingToSuperviewConstraint = trailingToSuperview
+        self.contentTrailingToPinnedConstraint = trailingToPinned
 
         NSLayoutConstraint.activate([
-            tabScrollView.topAnchor.constraint(equalTo: topAnchor),
-            tabScrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            tabScrollView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -1),
-            tabScrollView.trailingAnchor.constraint(equalTo: addButton.leadingAnchor, constant: -4),
-
-            addButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            addButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            content.topAnchor.constraint(equalTo: topAnchor, constant: 5),
+            content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            trailingToSuperview,
+            content.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -5),
+            pinnedAddButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            pinnedAddButton.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
 
-    }
-
-    /// Immediately updates tab button visual state for the selected pane without
-    /// waiting for the model round-trip.
-    func optimisticallySelect(paneID: PaneID) {
-        let selectedID = NSUserInterfaceItemIdentifier("pane-tab-\(paneID.rawValue)")
-        for button in paneTabButtons {
-            button.setActive(button.identifier == selectedID)
-        }
+        updateAddButtonMode()
     }
 
     func scrollActiveTabToVisible() {
-        guard !hasScrolledActiveTabIntoView else { return }
-        hasScrolledActiveTabIntoView = true
-        DispatchQueue.main.async { [weak self] in
-            guard let self, let focusedPaneID = self.focusedPaneID else { return }
-            let activeID = NSUserInterfaceItemIdentifier("pane-tab-\(focusedPaneID.rawValue)")
-            guard let button = self.paneTabButtons.first(where: { $0.identifier == activeID }) else { return }
-
-            let visibleRect = self.tabScrollView.contentView.bounds
-            let visibleWidth = visibleRect.width
-            let currentOffset = visibleRect.minX
-            let stripWidth = self.tabStrip.bounds.width
-            let maxOffset = max(0, stripWidth - visibleWidth)
-
-            guard maxOffset > 0 else { return }
-
-            let tabMinX = button.frame.minX
-            let tabMaxX = button.frame.maxX
-            let margin = CGFloat(16)
-            var newOffset = currentOffset
-
-            if tabMaxX > currentOffset + visibleWidth - margin {
-                newOffset = tabMaxX - visibleWidth + margin
-            } else if tabMinX < currentOffset + margin {
-                newOffset = tabMinX - margin
-            }
-
-            newOffset = min(max(newOffset, 0), maxOffset)
-            guard newOffset != currentOffset else { return }
-
-            self.tabScrollView.contentView.scroll(to: NSPoint(x: newOffset, y: 0))
-            self.tabScrollView.reflectScrolledClipView(self.tabScrollView.contentView)
+        guard let activeButton = paneTabButtons.first(where: { $0.isActivePaneTab }) else {
+            return
         }
+        let targetRect = activeButton.convert(activeButton.bounds, to: tabStrip)
+        tabScrollView.contentView.scrollToVisible(targetRect)
+        tabScrollView.reflectScrolledClipView(tabScrollView.contentView)
+    }
+
+    override func layout() {
+        super.layout()
+        updateAddButtonMode()
+    }
+
+    private func updateAddButtonMode() {
+        guard bounds.width > 0 else {
+            return
+        }
+
+        // Measure using the strip content width while inline add is present.
+        let overflow = tabStrip.fittingSize.width > tabScrollView.contentView.bounds.width + 1
+
+        inlineAddButton.isHidden = overflow
+        pinnedAddButton.isHidden = !overflow
+
+        contentTrailingToSuperviewConstraint?.isActive = !overflow
+        contentTrailingToPinnedConstraint?.isActive = overflow
     }
 
     func insertionIndex(forWindowPoint windowPoint: NSPoint) -> Int {
@@ -6393,6 +6385,7 @@ private final class PaneTabButton: NSControl, NSTextFieldDelegate {
     private let renderedIcon: OmuxRenderedIcon?
     private let iconSymbolImage: NSImage?
     private let progress: PaneProgress?
+    var isActivePaneTab: Bool { isActiveTab }
 
     init(
         pane: Pane,
