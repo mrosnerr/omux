@@ -431,6 +431,11 @@ final class WorkspaceShellViewController: NSViewController {
     }
 
     func update(workspace: Workspace) {
+        if paneTabDragState != nil {
+            deferredWorkspaceUpdateDuringPaneTabDrag = workspace
+            return
+        }
+
         let previousWorkspace = currentWorkspace
         let previousWorkspaceID = currentWorkspace?.id
         let previousFocusedPaneID = currentWorkspace?.focusedPane?.id
@@ -2607,6 +2612,7 @@ final class WorkspaceShellViewController: NSViewController {
         var ghostView: NSView?
     }
     private var paneTabDragState: PaneTabDragState?
+    private var deferredWorkspaceUpdateDuringPaneTabDrag: Workspace?
 
     private func canStartPaneTabDrag(paneID: PaneID, sourceStackID: PaneStackID) -> Bool {
         guard let workspace = currentWorkspace else {
@@ -2635,6 +2641,7 @@ final class WorkspaceShellViewController: NSViewController {
             return
         }
         clearPaneTabSplitPreview()
+        deferredWorkspaceUpdateDuringPaneTabDrag = nil
         let ghost = makePaneTabDragGhost(for: button)
         paneTabDragState = PaneTabDragState(
             paneID: paneID,
@@ -2726,6 +2733,7 @@ final class WorkspaceShellViewController: NSViewController {
             dragState.ghostView?.removeFromSuperview()
             paneTabDragState = nil
             clearPaneTabSplitPreview()
+            applyDeferredWorkspaceUpdateAfterPaneTabDragIfNeeded()
         }
 
         guard let intent = dragState.dropIntent else { return }
@@ -2773,6 +2781,15 @@ final class WorkspaceShellViewController: NSViewController {
         dragState.ghostView?.removeFromSuperview()
         paneTabDragState = nil
         clearPaneTabSplitPreview()
+        applyDeferredWorkspaceUpdateAfterPaneTabDragIfNeeded()
+    }
+
+    private func applyDeferredWorkspaceUpdateAfterPaneTabDragIfNeeded() {
+        guard let workspace = deferredWorkspaceUpdateDuringPaneTabDrag else {
+            return
+        }
+        deferredWorkspaceUpdateDuringPaneTabDrag = nil
+        update(workspace: workspace)
     }
 
     private func paneStackView(atWindowLocation location: NSPoint) -> PaneStackView? {
@@ -6603,21 +6620,14 @@ private final class PaneTabButton: NSControl, NSTextFieldDelegate {
         let initialLocation = convert(event.locationInWindow, from: nil)
         var didStartDragging = false
 
-        // Wait up to doubleClickInterval before committing to a single-click press,
-        // so a second click can still be detected as a double-click.
-        let deadline = Date(timeIntervalSinceNow: NSEvent.doubleClickInterval)
-
+        // Once a drag starts, tracking must continue until mouse-up so drag cleanup always runs.
         while let nextEvent = window?.nextEvent(
-            matching: [.leftMouseDragged, .leftMouseUp, .leftMouseDown, .keyDown],
-            until: deadline,
+            matching: [.leftMouseDragged, .leftMouseUp, .keyDown],
+            until: .distantFuture,
             inMode: .eventTracking,
             dequeue: true
         ) {
             switch nextEvent.type {
-            case .leftMouseDown where nextEvent.clickCount == 2:
-                beginInlineRename()
-                return
-
             case .keyDown where nextEvent.keyCode == 53: // Escape
                 if didStartDragging {
                     onDragCancelled?(self)
@@ -6647,11 +6657,6 @@ private final class PaneTabButton: NSControl, NSTextFieldDelegate {
                 NSApp.postEvent(nextEvent, atStart: false)
                 return
             }
-        }
-
-        // Deadline elapsed without a second click — commit single-click press.
-        if !didStartDragging {
-            onPress?()
         }
     }
 
