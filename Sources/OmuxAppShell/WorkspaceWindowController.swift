@@ -1160,6 +1160,10 @@ final class WorkspaceShellViewController: NSViewController {
                 } else {
                     _ = try? target.controller.clearPaneAlias(paneID)
                 }
+                target.view.window?.undoManager?.registerUndo(withTarget: target) { redoTarget in
+                    _ = try? redoTarget.controller.setPaneAlias(paneID, to: newName)
+                    redoTarget.view.window?.undoManager?.setActionName("Rename Tab")
+                }
             }
             self.view.window?.undoManager?.setActionName("Rename Tab")
         }
@@ -4478,6 +4482,8 @@ private final class PaneTabButton: NSControl, NSTextFieldDelegate {
     var onClearAlias: (() -> Void)?
 
     private var isRenaming = false
+    private var originalTitle: String = ""
+    private weak var previousFirstResponder: NSResponder?
     private let titleLabel = NSTextField(labelWithString: "")
     private let iconLabel = NSTextField(labelWithString: "")
     private let iconImageView = NSImageView()
@@ -4516,8 +4522,8 @@ private final class PaneTabButton: NSControl, NSTextFieldDelegate {
         topBorderLayer.zPosition = 1
         layer?.addSublayer(topBorderLayer)
         identifier = NSUserInterfaceItemIdentifier("pane-tab-\(pane.id.rawValue)")
-        setAccessibilityLabel(icon.map { "\($0.accessibilityLabel), \(pane.title)" } ?? pane.title)
-        toolTip = pane.title
+        setAccessibilityLabel(icon.map { "\($0.accessibilityLabel), \(pane.displayTitle)" } ?? pane.displayTitle)
+        toolTip = pane.displayTitle
         setContentHuggingPriority(.defaultLow, for: .horizontal)
         setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
@@ -4549,7 +4555,7 @@ private final class PaneTabButton: NSControl, NSTextFieldDelegate {
         titleLabel.font = .systemFont(ofSize: 11, weight: active ? .semibold : .medium)
          titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.stringValue = pane.displayTitle
-        titleLabel.toolTip = pane.title
+        titleLabel.toolTip = pane.displayTitle
          titleLabel.textColor = active ? theme.shell.textPrimary : theme.shell.textSecondary
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         addSubview(titleLabel)
@@ -4557,7 +4563,7 @@ private final class PaneTabButton: NSControl, NSTextFieldDelegate {
         if showsClose {
             closeButton.configure(
                 symbolName: "xmark",
-                accessibilityLabel: "Close \(pane.title)",
+                accessibilityLabel: "Close \(pane.displayTitle)",
                 active: false,
                 theme: theme,
                 compact: true
@@ -4739,6 +4745,7 @@ private final class PaneTabButton: NSControl, NSTextFieldDelegate {
                 return
 
             default:
+                NSApp.postEvent(nextEvent, atStart: false)
                 return
             }
         }
@@ -4764,6 +4771,8 @@ private final class PaneTabButton: NSControl, NSTextFieldDelegate {
     func beginInlineRename() {
         guard !isRenaming else { return }
         isRenaming = true
+        originalTitle = titleLabel.stringValue
+        previousFirstResponder = window?.firstResponder
         titleLabel.isEditable = true
         titleLabel.isSelectable = true
         titleLabel.isBezeled = false
@@ -4786,6 +4795,8 @@ private final class PaneTabButton: NSControl, NSTextFieldDelegate {
     }
 
     private func cancelInlineRename() {
+        guard isRenaming else { return }
+        titleLabel.stringValue = originalTitle
         endInlineRename()
     }
 
@@ -4795,7 +4806,8 @@ private final class PaneTabButton: NSControl, NSTextFieldDelegate {
         titleLabel.isEditable = false
         titleLabel.isSelectable = false
         titleLabel.delegate = nil
-        window?.makeFirstResponder(nil)
+        window?.makeFirstResponder(previousFirstResponder)
+        previousFirstResponder = nil
     }
 
     nonisolated func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
