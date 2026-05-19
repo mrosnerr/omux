@@ -31,7 +31,7 @@
 
 - [x] 5.1 Add `onRenamePaneTab` and `onClearPaneTabAlias` closure parameters to `PaneHeaderView.init`
 - [x] 5.2 In `PaneHeaderView`, wire each `PaneTabButton.onRename` to `onRenamePaneTab(pane.id, newName)` and `onClearAlias` to `onClearPaneTabAlias(pane.id)`
-- [x] 5.3 In `WorkspaceShellViewController.update(workspace:)`, provide closures that call `controller.setPaneAlias` / `controller.clearPaneAlias` and register undo entries on `view.window?.undoManager` (restoring previous alias, action name "Rename Tab" / "Clear Tab Name")
+- [x] 5.3 In `WorkspaceWindowController.update(workspace:)`, provide closures that call `controller.setPaneAlias` / `controller.clearPaneAlias` and register undo entries on `view.window?.undoManager` (restoring previous alias, action name "Rename Tab" / "Clear Tab Name")
 
 ## 6. IPC / Control Plane — Pane Alias Operations
 

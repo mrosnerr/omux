@@ -3239,12 +3239,13 @@ public final class WorkspaceController: @unchecked Sendable {
                 continue
             }
 
-            deliveredTerminalDisplayTitleByPane[paneID] = displayTitle
             lastTerminalDisplayTitleUpdateByPane[paneID] = now
             _ = workspaces[location.workspaceIndex].updatePane(paneID) { pane in
-                if Self.shouldPromoteTerminalDisplayTitleToPaneTitle(displayTitle),
+                if pane.userAlias == nil,
+                   Self.shouldPromoteTerminalDisplayTitleToPaneTitle(displayTitle),
                    pane.title != displayTitle {
                     pane.title = displayTitle
+                    deliveredTerminalDisplayTitleByPane[paneID] = displayTitle
                 }
             }
             updatedWorkspaceIDs.insert(workspaces[location.workspaceIndex].id)

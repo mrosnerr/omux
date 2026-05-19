@@ -1149,6 +1149,36 @@ final class WorkspaceShellViewController: NSViewController {
         #endif
     }
 
+    private func makeRenamePaneTabHandler() -> (PaneID, String) -> Void {
+        { [weak self] paneID, newName in
+            guard let self else { return }
+            let oldAlias = controller.pane(paneID)?.userAlias
+            guard let _ = try? controller.setPaneAlias(paneID, to: newName) else { return }
+            self.view.window?.undoManager?.registerUndo(withTarget: self) { target in
+                if let oldAlias {
+                    _ = try? target.controller.setPaneAlias(paneID, to: oldAlias)
+                } else {
+                    _ = try? target.controller.clearPaneAlias(paneID)
+                }
+            }
+            self.view.window?.undoManager?.setActionName("Rename Tab")
+        }
+    }
+
+    private func makeClearPaneTabAliasHandler() -> (PaneID) -> Void {
+        { [weak self] paneID in
+            guard let self else { return }
+            let oldAlias = controller.pane(paneID)?.userAlias
+            guard let _ = try? controller.clearPaneAlias(paneID) else { return }
+            self.view.window?.undoManager?.registerUndo(withTarget: self) { target in
+                if let oldAlias {
+                    _ = try? target.controller.setPaneAlias(paneID, to: oldAlias)
+                }
+            }
+            self.view.window?.undoManager?.setActionName("Clear Tab Name")
+        }
+    }
+
     private func reconcileLayoutView(
         existingView: NSView,
         node: TabLayoutNode,
@@ -1218,30 +1248,8 @@ final class WorkspaceShellViewController: NSViewController {
                 onExtensionPaneAction: { [weak self] request in
                     self?.onExtensionPaneAction(request)
                 },
-                onRenamePaneTab: { [weak self] paneID, newName in
-                    guard let self else { return }
-                    let oldAlias = controller.pane(paneID)?.userAlias
-                    guard let _ = try? controller.setPaneAlias(paneID, to: newName) else { return }
-                    self.view.window?.undoManager?.registerUndo(withTarget: self) { target in
-                        if let oldAlias {
-                            _ = try? target.controller.setPaneAlias(paneID, to: oldAlias)
-                        } else {
-                            _ = try? target.controller.clearPaneAlias(paneID)
-                        }
-                    }
-                    self.view.window?.undoManager?.setActionName("Rename Tab")
-                },
-                onClearPaneTabAlias: { [weak self] paneID in
-                    guard let self else { return }
-                    let oldAlias = controller.pane(paneID)?.userAlias
-                    guard let _ = try? controller.clearPaneAlias(paneID) else { return }
-                    self.view.window?.undoManager?.registerUndo(withTarget: self) { target in
-                        if let oldAlias {
-                            _ = try? target.controller.setPaneAlias(paneID, to: oldAlias)
-                        }
-                    }
-                    self.view.window?.undoManager?.setActionName("Clear Tab Name")
-                }
+                onRenamePaneTab: makeRenamePaneTabHandler(),
+                onClearPaneTabAlias: makeClearPaneTabAliasHandler()
             )
             return (true, paneStack.focusedPaneID == focusedPaneID ? stackView.focusedPaneView : nil, 1)
 
@@ -1355,30 +1363,8 @@ final class WorkspaceShellViewController: NSViewController {
                 onExtensionPaneAction: { [weak self] request in
                     self?.onExtensionPaneAction(request)
                 },
-                onRenamePaneTab: { [weak self] paneID, newName in
-                    guard let self else { return }
-                    let oldAlias = controller.pane(paneID)?.userAlias
-                    guard let _ = try? controller.setPaneAlias(paneID, to: newName) else { return }
-                    self.view.window?.undoManager?.registerUndo(withTarget: self) { target in
-                        if let oldAlias {
-                            _ = try? target.controller.setPaneAlias(paneID, to: oldAlias)
-                        } else {
-                            _ = try? target.controller.clearPaneAlias(paneID)
-                        }
-                    }
-                    self.view.window?.undoManager?.setActionName("Rename Tab")
-                },
-                onClearPaneTabAlias: { [weak self] paneID in
-                    guard let self else { return }
-                    let oldAlias = controller.pane(paneID)?.userAlias
-                    guard let _ = try? controller.clearPaneAlias(paneID) else { return }
-                    self.view.window?.undoManager?.registerUndo(withTarget: self) { target in
-                        if let oldAlias {
-                            _ = try? target.controller.setPaneAlias(paneID, to: oldAlias)
-                        }
-                    }
-                    self.view.window?.undoManager?.setActionName("Clear Tab Name")
-                }
+                onRenamePaneTab: makeRenamePaneTabHandler(),
+                onClearPaneTabAlias: makeClearPaneTabAliasHandler()
             )
             return (
                 stackView,

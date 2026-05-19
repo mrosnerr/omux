@@ -65,7 +65,7 @@ Sources reviewed:
 
 | Feature | Priority | cmux ref |
 |---|---|---|
-| **Double-click to rename tabs** — inline rename of workspace tabs on double-click | Medium | PR #4341 |
+| **Double-click to rename tabs** — inline rename of workspace tabs on double-click | Medium | PR #43 |
 | **Unread notification badge on app icon** — show a badge on the Dock icon when there are unread or needs-input notifications | Medium | PR #4336 |
 | **Native macOS "Services" menu** — wire up the macOS Services menu on right-click in the terminal surface | Low | Issue #2698 |
 | **Force-click "Look Up" / dictionary popover** — support the macOS force-click gesture for dictionary lookup on terminal text | Low | Issue #4344, PR #4346 |
