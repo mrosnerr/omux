@@ -480,6 +480,7 @@ public struct PaneTerminalState: Equatable, Codable, Sendable {
     public var reportedTitle: String?
     public var reportedWorkingDirectory: String?
     public var progress: PaneProgress?
+    public var agentStatusAdapterID: String?
     public var lastExit: PaneExitStatus?
     public var rendererHealthy: Bool?
     public var restoredScrollback: PaneScrollbackSnapshot?
@@ -488,6 +489,7 @@ public struct PaneTerminalState: Equatable, Codable, Sendable {
         reportedTitle: String? = nil,
         reportedWorkingDirectory: String? = nil,
         progress: PaneProgress? = nil,
+        agentStatusAdapterID: String? = nil,
         lastExit: PaneExitStatus? = nil,
         rendererHealthy: Bool? = nil,
         restoredScrollback: PaneScrollbackSnapshot? = nil
@@ -495,6 +497,7 @@ public struct PaneTerminalState: Equatable, Codable, Sendable {
         self.reportedTitle = reportedTitle
         self.reportedWorkingDirectory = reportedWorkingDirectory
         self.progress = progress
+        self.agentStatusAdapterID = agentStatusAdapterID
         self.lastExit = lastExit
         self.rendererHealthy = rendererHealthy
         self.restoredScrollback = restoredScrollback
