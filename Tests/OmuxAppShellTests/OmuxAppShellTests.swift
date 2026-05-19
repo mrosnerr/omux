@@ -4575,17 +4575,15 @@ final class OmuxAppShellTests: XCTestCase {
                 .first { $0.identifier?.rawValue == "pane-tab-strip-\(paneStack.id.rawValue)" }
         )
 
-        // The add button is now a sibling of the scroll view that wraps the tab strip,
-        // not an arranged subview of the strip itself.
         let arrangedIdentifiers = tabStrip.arrangedSubviews.compactMap { $0.identifier?.rawValue }
+        let addButtonID = "pane-tab-add-\(paneStack.id.rawValue)"
 
         XCTAssertEqual(
             arrangedIdentifiers,
-            paneStack.panes.map { "pane-tab-\($0.id.rawValue)" }
+            paneStack.panes.map { "pane-tab-\($0.id.rawValue)" } + [addButtonID]
         )
 
         // Verify the add button exists in the view hierarchy.
-        let addButtonID = "pane-tab-add-\(paneStack.id.rawValue)"
         let addButton = findViews(ofType: NSView.self, in: rootView)
             .first { $0.identifier?.rawValue == addButtonID }
         XCTAssertNotNil(addButton, "Add button '\(addButtonID)' should exist in the view hierarchy")
