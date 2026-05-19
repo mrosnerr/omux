@@ -830,4 +830,44 @@ final class OmuxCoreTests: XCTestCase {
         XCTAssertEqual(decoded.objectValue?["exitCode"]?.integerValue, 1)
         XCTAssertEqual(decoded.objectValue?["items"]?.arrayValue?.count, 2)
     }
+
+    // MARK: - Pane userAlias
+
+    func testPaneUserAliasSurvivesEncodeDecodeRoundTrip() throws {
+        let session = SessionDescriptor(shell: "/bin/zsh", workingDirectory: "/tmp")
+        let pane = Pane(title: "shell", userAlias: "api", session: session)
+        let data = try JSONEncoder().encode(pane)
+        let decoded = try JSONDecoder().decode(Pane.self, from: data)
+        XCTAssertEqual(decoded.userAlias, "api")
+        XCTAssertTrue(decoded.hasUserAlias)
+        XCTAssertEqual(decoded.displayTitle, "api")
+    }
+
+    func testPaneWithoutUserAliasDecodesBackwardCompatibly() throws {
+        // Simulate saved state with no userAlias key
+        let legacyData = Data("""
+        {
+          "id": "pane-1",
+          "title": "vim README.md",
+          "content": {"type": "terminal", "session": {"id": "s-1", "shell": "/bin/zsh", "workingDirectory": "/tmp", "environment": {}}},
+          "terminalState": {}
+        }
+        """.utf8)
+        let decoded = try JSONDecoder().decode(Pane.self, from: legacyData)
+        XCTAssertNil(decoded.userAlias)
+        XCTAssertFalse(decoded.hasUserAlias)
+        XCTAssertEqual(decoded.displayTitle, "vim README.md")
+    }
+
+    func testPaneDisplayTitlePrefersAliasOverTitle() {
+        let session = SessionDescriptor(shell: "/bin/zsh", workingDirectory: "/tmp")
+        let pane = Pane(title: "node server.js", userAlias: "api", session: session)
+        XCTAssertEqual(pane.displayTitle, "api")
+    }
+
+    func testPaneDisplayTitleFallsBackToTitleWhenNoAlias() {
+        let session = SessionDescriptor(shell: "/bin/zsh", workingDirectory: "/tmp")
+        let pane = Pane(title: "vim README.md", session: session)
+        XCTAssertEqual(pane.displayTitle, "vim README.md")
+    }
 }

@@ -1217,6 +1217,30 @@ final class WorkspaceShellViewController: NSViewController {
                 },
                 onExtensionPaneAction: { [weak self] request in
                     self?.onExtensionPaneAction(request)
+                },
+                onRenamePaneTab: { [weak self] paneID, newName in
+                    guard let self else { return }
+                    let oldAlias = controller.pane(paneID)?.userAlias
+                    guard let _ = try? controller.setPaneAlias(paneID, to: newName) else { return }
+                    self.view.window?.undoManager?.registerUndo(withTarget: self) { target in
+                        if let oldAlias {
+                            _ = try? target.controller.setPaneAlias(paneID, to: oldAlias)
+                        } else {
+                            _ = try? target.controller.clearPaneAlias(paneID)
+                        }
+                    }
+                    self.view.window?.undoManager?.setActionName("Rename Tab")
+                },
+                onClearPaneTabAlias: { [weak self] paneID in
+                    guard let self else { return }
+                    let oldAlias = controller.pane(paneID)?.userAlias
+                    guard let _ = try? controller.clearPaneAlias(paneID) else { return }
+                    self.view.window?.undoManager?.registerUndo(withTarget: self) { target in
+                        if let oldAlias {
+                            _ = try? target.controller.setPaneAlias(paneID, to: oldAlias)
+                        }
+                    }
+                    self.view.window?.undoManager?.setActionName("Clear Tab Name")
                 }
             )
             return (true, paneStack.focusedPaneID == focusedPaneID ? stackView.focusedPaneView : nil, 1)
@@ -1330,6 +1354,30 @@ final class WorkspaceShellViewController: NSViewController {
                 },
                 onExtensionPaneAction: { [weak self] request in
                     self?.onExtensionPaneAction(request)
+                },
+                onRenamePaneTab: { [weak self] paneID, newName in
+                    guard let self else { return }
+                    let oldAlias = controller.pane(paneID)?.userAlias
+                    guard let _ = try? controller.setPaneAlias(paneID, to: newName) else { return }
+                    self.view.window?.undoManager?.registerUndo(withTarget: self) { target in
+                        if let oldAlias {
+                            _ = try? target.controller.setPaneAlias(paneID, to: oldAlias)
+                        } else {
+                            _ = try? target.controller.clearPaneAlias(paneID)
+                        }
+                    }
+                    self.view.window?.undoManager?.setActionName("Rename Tab")
+                },
+                onClearPaneTabAlias: { [weak self] paneID in
+                    guard let self else { return }
+                    let oldAlias = controller.pane(paneID)?.userAlias
+                    guard let _ = try? controller.clearPaneAlias(paneID) else { return }
+                    self.view.window?.undoManager?.registerUndo(withTarget: self) { target in
+                        if let oldAlias {
+                            _ = try? target.controller.setPaneAlias(paneID, to: oldAlias)
+                        }
+                    }
+                    self.view.window?.undoManager?.setActionName("Clear Tab Name")
                 }
             )
             return (
@@ -3690,6 +3738,8 @@ final class PaneStackView: NSView {
         onTextActivation: @escaping @MainActor (TerminalTextActivationRequest) -> Bool,
         onTextActivationHover: @escaping @MainActor (TerminalTextActivationRequest) -> Bool,
         onExtensionPaneAction: @escaping @MainActor (ExtensionPaneActionRequest) -> Void,
+        onRenamePaneTab: ((PaneID, String) -> Void)? = nil,
+        onClearPaneTabAlias: ((PaneID) -> Void)? = nil,
         showsHeader: Bool = true
     ) {
         self.showsHeader = showsHeader
@@ -3736,9 +3786,12 @@ final class PaneStackView: NSView {
             onPaneTabDragStarted: onPaneTabDragStarted,
             onPaneTabDragMoved: onPaneTabDragMoved,
             onPaneTabDragEnded: onPaneTabDragEnded,
-            onPaneTabDragCancelled: onPaneTabDragCancelled
+            onPaneTabDragCancelled: onPaneTabDragCancelled,
+            onRenamePaneTab: onRenamePaneTab,
+            onClearPaneTabAlias: onClearPaneTabAlias
         ) : nil
         self.headerView = headerView
+        headerView?.scrollActiveTabToVisible()
         paneCardView.configure(
             headerView: headerView,
             statusText: activePane.terminalState.statusSummary,
@@ -3791,6 +3844,8 @@ final class PaneStackView: NSView {
         onTextActivation: @escaping @MainActor (TerminalTextActivationRequest) -> Bool,
         onTextActivationHover: @escaping @MainActor (TerminalTextActivationRequest) -> Bool,
         onExtensionPaneAction: @escaping @MainActor (ExtensionPaneActionRequest) -> Void,
+        onRenamePaneTab: ((PaneID, String) -> Void)? = nil,
+        onClearPaneTabAlias: ((PaneID) -> Void)? = nil,
         showsHeader: Bool = true
     ) {
         precondition(showsHeader == self.showsHeader, "PaneStackView header visibility cannot change during reconciliation.")
@@ -3846,9 +3901,12 @@ final class PaneStackView: NSView {
             onPaneTabDragStarted: onPaneTabDragStarted,
             onPaneTabDragMoved: onPaneTabDragMoved,
             onPaneTabDragEnded: onPaneTabDragEnded,
-            onPaneTabDragCancelled: onPaneTabDragCancelled
+            onPaneTabDragCancelled: onPaneTabDragCancelled,
+            onRenamePaneTab: onRenamePaneTab,
+            onClearPaneTabAlias: onClearPaneTabAlias
         ) : nil
         self.headerView = headerView
+        headerView?.scrollActiveTabToVisible()
         paneRenderer.updateFocusState(activePane.id == focusedPaneID)
         paneCardView.configure(
             headerView: headerView,
@@ -4030,6 +4088,7 @@ final class PaneCardView: NSView {
         if let headerView {
             container.addArrangedSubview(headerView)
             headerView.widthAnchor.constraint(equalTo: container.widthAnchor).isActive = true
+
         }
         if statusText != nil {
             container.addArrangedSubview(statusLabel)
@@ -4049,7 +4108,12 @@ final class PaneCardView: NSView {
 @MainActor
 final class PaneHeaderView: NSView {
     private let tabStrip = NSStackView()
+    private let tabScrollView = NSScrollView()
     private var paneTabButtons: [PaneTabButton] = []
+    private var focusedPaneID: PaneID?
+    private var hasScrolledActiveTabIntoView = false
+    private static let tabMinWidth: CGFloat = 130
+    private static let tabMaxWidth: CGFloat = 200
 
     init(
         paneStack: PaneStack,
@@ -4066,12 +4130,15 @@ final class PaneHeaderView: NSView {
         onPaneTabDragStarted: ((NSView, PaneID, PaneStackID, NSEvent) -> Void)? = nil,
         onPaneTabDragMoved: ((PaneID, PaneStackID, NSEvent) -> Void)? = nil,
         onPaneTabDragEnded: ((PaneID, PaneStackID, NSEvent) -> Void)? = nil,
-        onPaneTabDragCancelled: (() -> Void)? = nil
+        onPaneTabDragCancelled: (() -> Void)? = nil,
+        onRenamePaneTab: ((PaneID, String) -> Void)? = nil,
+        onClearPaneTabAlias: ((PaneID) -> Void)? = nil
     ) {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
         layer?.backgroundColor = theme.shell.paneHeaderBackground.cgColor
+        focusedPaneID = paneStack.focusedPaneID
 
         let content = NSStackView()
         content.orientation = .horizontal
@@ -4081,7 +4148,9 @@ final class PaneHeaderView: NSView {
 
         tabStrip.orientation = .horizontal
         tabStrip.alignment = .centerY
-        tabStrip.spacing = 6
+        tabStrip.spacing = 0
+        tabStrip.distribution = .fill
+        tabStrip.translatesAutoresizingMaskIntoConstraints = false
         tabStrip.identifier = NSUserInterfaceItemIdentifier("pane-tab-strip-\(paneStack.id.rawValue)")
         tabStrip.setContentHuggingPriority(.defaultLow, for: .horizontal)
         tabStrip.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -4102,8 +4171,17 @@ final class PaneHeaderView: NSView {
                     try? onClosePane(pane.id)
                 }
             )
-            button.onPress = { onSelectPaneTab(pane.id) }
+            button.onPress = { [weak self] in
+                self?.optimisticallySelect(paneID: pane.id)
+                onSelectPaneTab(pane.id)
+            }
             button.contextMenuProvider = { contextMenuProvider(pane) }
+            if let onRenamePaneTab {
+                button.onRename = { newName in onRenamePaneTab(pane.id, newName) }
+            }
+            if let onClearPaneTabAlias {
+                button.onClearAlias = { onClearPaneTabAlias(pane.id) }
+            }
             if onPaneTabDragStarted != nil {
                 button.canStartDrag = { canStartPaneTabDrag(pane.id) }
                 button.onDragStarted = { [weak button] _, event in
@@ -4116,26 +4194,121 @@ final class PaneHeaderView: NSView {
             }
             tabStrip.addArrangedSubview(button)
             paneTabButtons.append(button)
+
         }
+
+        // Scroll view wraps the tab strip so tabs can overflow horizontally.
+        tabScrollView.translatesAutoresizingMaskIntoConstraints = false
+        tabScrollView.hasHorizontalScroller = false
+        tabScrollView.hasVerticalScroller = false
+        tabScrollView.autohidesScrollers = true
+        tabScrollView.drawsBackground = false
+        tabScrollView.borderType = .noBorder
+        tabScrollView.horizontalScrollElasticity = .allowed
+        tabScrollView.verticalScrollElasticity = .none
+        tabScrollView.documentView = tabStrip
+        tabScrollView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        tabScrollView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        NSLayoutConstraint.activate([
+            tabStrip.topAnchor.constraint(equalTo: tabScrollView.contentView.topAnchor),
+            tabStrip.bottomAnchor.constraint(equalTo: tabScrollView.contentView.bottomAnchor),
+            tabStrip.leadingAnchor.constraint(equalTo: tabScrollView.contentView.leadingAnchor),
+            tabScrollView.heightAnchor.constraint(equalToConstant: ShellLayoutMetrics.paneHeaderHeight - 1),
+        ])
 
         let addButton = ChromePillButton()
         addButton.configure(symbolName: "plus", accessibilityLabel: "Add pane tab", active: false, theme: theme, compact: true)
         addButton.identifier = NSUserInterfaceItemIdentifier("pane-tab-add-\(paneStack.id.rawValue)")
+        addButton.translatesAutoresizingMaskIntoConstraints = false
         addButton.onPress = {
             try? onCreatePaneTab()
         }
-        tabStrip.addArrangedSubview(addButton)
 
-        content.addArrangedSubview(tabStrip)
-        content.addArrangedSubview(NSView())
-        addSubview(content)
+        addSubview(tabScrollView)
+        addSubview(addButton)
 
         NSLayoutConstraint.activate([
-            content.topAnchor.constraint(equalTo: topAnchor, constant: 5),
-            content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            content.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            content.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -5),
+            tabScrollView.topAnchor.constraint(equalTo: topAnchor),
+            tabScrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            tabScrollView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -1),
+            tabScrollView.trailingAnchor.constraint(equalTo: addButton.leadingAnchor, constant: -4),
+
+            addButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            addButton.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
+
+        // Each tab takes an equal share of the available width (header minus add button),
+        // clamped to [tabMinWidth, tabMaxWidth]. When tabs overflow at minimum width the
+        // scroll view allows horizontal scrolling.
+        if !paneTabButtons.isEmpty {
+            let first = paneTabButtons[0]
+            let count = CGFloat(paneTabButtons.count)
+            let addButtonFootprint = addButton.intrinsicContentSize.width + 8 + 4 // trailing + gap
+            var tabConstraints: [NSLayoutConstraint] = []
+            for button in paneTabButtons {
+                // Try to fill available width equally.
+                let equalWidth = button.widthAnchor.constraint(
+                    equalTo: widthAnchor,
+                    multiplier: 1.0 / count,
+                    constant: -addButtonFootprint / count
+                )
+                equalWidth.priority = .defaultHigh
+                let minWidth = button.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.tabMinWidth)
+                let maxWidth = button.widthAnchor.constraint(lessThanOrEqualToConstant: Self.tabMaxWidth)
+                tabConstraints.append(contentsOf: [equalWidth, minWidth, maxWidth])
+                if button !== first {
+                    let sameWidth = button.widthAnchor.constraint(equalTo: first.widthAnchor)
+                    sameWidth.priority = .defaultHigh
+                    tabConstraints.append(sameWidth)
+                }
+            }
+            NSLayoutConstraint.activate(tabConstraints)
+        }
+    }
+
+    /// Immediately updates tab button visual state for the selected pane without
+    /// waiting for the model round-trip.
+    func optimisticallySelect(paneID: PaneID) {
+        let selectedID = NSUserInterfaceItemIdentifier("pane-tab-\(paneID.rawValue)")
+        for button in paneTabButtons {
+            button.setActive(button.identifier == selectedID)
+        }
+    }
+
+    func scrollActiveTabToVisible() {
+        guard !hasScrolledActiveTabIntoView else { return }
+        hasScrolledActiveTabIntoView = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let focusedPaneID = self.focusedPaneID else { return }
+            let activeID = NSUserInterfaceItemIdentifier("pane-tab-\(focusedPaneID.rawValue)")
+            guard let button = self.paneTabButtons.first(where: { $0.identifier == activeID }) else { return }
+
+            let visibleRect = self.tabScrollView.contentView.bounds
+            let visibleWidth = visibleRect.width
+            let currentOffset = visibleRect.minX
+            let stripWidth = self.tabStrip.bounds.width
+            let maxOffset = max(0, stripWidth - visibleWidth)
+
+            guard maxOffset > 0 else { return }
+
+            let tabMinX = button.frame.minX
+            let tabMaxX = button.frame.maxX
+            let margin = CGFloat(16)
+            var newOffset = currentOffset
+
+            if tabMaxX > currentOffset + visibleWidth - margin {
+                newOffset = tabMaxX - visibleWidth + margin
+            } else if tabMinX < currentOffset + margin {
+                newOffset = tabMinX - margin
+            }
+
+            newOffset = min(max(newOffset, 0), maxOffset)
+            guard newOffset != currentOffset else { return }
+
+            self.tabScrollView.contentView.scroll(to: NSPoint(x: newOffset, y: 0))
+            self.tabScrollView.reflectScrolledClipView(self.tabScrollView.contentView)
+        }
     }
 
     func insertionIndex(forWindowPoint windowPoint: NSPoint) -> Int {
@@ -4301,7 +4474,7 @@ private extension WorkspaceShellTheme {
 }
 
 @MainActor
-private final class PaneTabButton: NSControl {
+private final class PaneTabButton: NSControl, NSTextFieldDelegate {
     var onPress: (() -> Void)?
     var onDragStarted: ((PaneTabButton, NSEvent) -> Void)?
     var onDragMoved: ((PaneTabButton, NSEvent) -> Void)?
@@ -4313,19 +4486,25 @@ private final class PaneTabButton: NSControl {
             menu = contextMenuProvider?()
         }
     }
+    /// Called when the user commits a non-empty inline rename.
+    var onRename: ((String) -> Void)?
+    /// Called when the user commits an empty inline rename (clears alias).
+    var onClearAlias: (() -> Void)?
 
+    private var isRenaming = false
     private let titleLabel = NSTextField(labelWithString: "")
     private let iconLabel = NSTextField(labelWithString: "")
     private let iconImageView = NSImageView()
     private let progressOrb = PaneProgressOrbView()
     private let closeButton = ChromePillButton()
-    private let contentInsets = NSEdgeInsets(top: 2, left: 6, bottom: 2, right: 6)
+     private let contentInsets = NSEdgeInsets(top: 0, left: 5, bottom: 0, right: 3)
     private let interItemSpacing = CGFloat(4)
     private let iconSpacing = CGFloat(4)
     private let symbolSide = CGFloat(12)
     private let showsClose: Bool
     private let currentTheme: WorkspaceShellTheme
-    private let isActiveTab: Bool
+    private var isActiveTab: Bool
+    private let topBorderLayer = CALayer()
     private let renderedIcon: OmuxRenderedIcon?
     private let iconSymbolImage: NSImage?
     private let progress: PaneProgress?
@@ -4348,13 +4527,13 @@ private final class PaneTabButton: NSControl {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
-        layer?.masksToBounds = true
-        layer?.cornerRadius = 3
+        topBorderLayer.zPosition = 1
+        layer?.addSublayer(topBorderLayer)
         identifier = NSUserInterfaceItemIdentifier("pane-tab-\(pane.id.rawValue)")
         setAccessibilityLabel(icon.map { "\($0.accessibilityLabel), \(pane.title)" } ?? pane.title)
         toolTip = pane.title
         setContentHuggingPriority(.defaultLow, for: .horizontal)
-        setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         progressOrb.identifier = NSUserInterfaceItemIdentifier("pane-tab-progress-\(pane.id.rawValue)")
         progressOrb.configure(progress: progress, theme: theme)
@@ -4366,26 +4545,26 @@ private final class PaneTabButton: NSControl {
         iconLabel.alignment = .center
         iconLabel.stringValue = icon?.text ?? ""
         iconLabel.toolTip = icon?.accessibilityLabel
-        iconLabel.textColor = icon.flatMap { theme.iconColor(for: $0, selected: active) }
-            ?? (active ? theme.shell.selectedText : theme.shell.textSecondary)
+         iconLabel.textColor = icon.flatMap { theme.iconColor(for: $0, selected: active) }
+            ?? (active ? theme.shell.textPrimary : theme.shell.textSecondary)
         iconLabel.isHidden = icon == nil || iconSymbolImage != nil
         addSubview(iconLabel)
 
         iconImageView.translatesAutoresizingMaskIntoConstraints = false
         iconImageView.symbolConfiguration = .init(pointSize: 11, weight: active ? .semibold : .medium)
         iconImageView.image = iconSymbolImage
-        iconImageView.contentTintColor = icon.flatMap { theme.iconColor(for: $0, selected: active) }
-            ?? (active ? theme.shell.selectedText : theme.shell.textSecondary)
+         iconImageView.contentTintColor = icon.flatMap { theme.iconColor(for: $0, selected: active) }
+            ?? (active ? theme.shell.textPrimary : theme.shell.textSecondary)
         iconImageView.toolTip = icon?.accessibilityLabel
         iconImageView.isHidden = iconSymbolImage == nil
         addSubview(iconImageView)
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.font = .systemFont(ofSize: 11, weight: active ? .semibold : .medium)
-        titleLabel.lineBreakMode = .byClipping
-        titleLabel.stringValue = PaneTabTitleFormatter.displayTitle(pane.title)
+         titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.stringValue = pane.displayTitle
         titleLabel.toolTip = pane.title
-        titleLabel.textColor = active ? theme.shell.selectedText : theme.shell.textSecondary
+         titleLabel.textColor = active ? theme.shell.textPrimary : theme.shell.textSecondary
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         addSubview(titleLabel)
 
@@ -4393,7 +4572,7 @@ private final class PaneTabButton: NSControl {
             closeButton.configure(
                 symbolName: "xmark",
                 accessibilityLabel: "Close \(pane.title)",
-                active: active,
+                active: false,
                 theme: theme,
                 compact: true
             )
@@ -4430,21 +4609,23 @@ private final class PaneTabButton: NSControl {
         let iconWidth = renderedIcon == nil ? 0 : iconSize.width + iconSpacing
         return NSSize(
             width: progressWidth + iconWidth + titleSize.width + closeWidth + contentInsets.left + contentInsets.right,
-            height: max(titleSize.height, iconSize.height, closeSize.height) + contentInsets.top + contentInsets.bottom
+            height: ShellLayoutMetrics.paneHeaderHeight
         )
     }
 
     override func layout() {
         super.layout()
-        let contentBounds = bounds.insetBy(
-            dx: contentInsets.left,
-            dy: contentInsets.top
-        )
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        topBorderLayer.frame = CGRect(x: 0, y: 0, width: bounds.width, height: 2)
+        CATransaction.commit()
+        let contentLeft = contentInsets.left
+        let contentRight = contentInsets.right
 
-        var titleMinX = contentBounds.minX
+        var titleMinX = contentLeft
         if progress != nil {
             progressOrb.frame = NSRect(
-                x: contentBounds.minX,
+                x: contentLeft,
                 y: round((bounds.height - PaneProgressOrbView.side) / 2),
                 width: PaneProgressOrbView.side,
                 height: PaneProgressOrbView.side
@@ -4482,26 +4663,28 @@ private final class PaneTabButton: NSControl {
             iconImageView.frame = .zero
         }
 
+        let titleH = titleLabel.intrinsicContentSize.height
+        let titleY = round((bounds.height - titleH) / 2)
         if showsClose {
             let closeSize = closeButton.intrinsicContentSize
             closeButton.frame = NSRect(
-                x: bounds.width - contentInsets.right - closeSize.width,
+                x: bounds.width - contentRight - closeSize.width,
                 y: round((bounds.height - closeSize.height) / 2),
                 width: closeSize.width,
                 height: closeSize.height
             )
             titleLabel.frame = NSRect(
                 x: titleMinX,
-                y: contentBounds.minY,
+                y: titleY,
                 width: max(0, closeButton.frame.minX - interItemSpacing - titleMinX),
-                height: contentBounds.height
+                height: titleH
             )
         } else {
             titleLabel.frame = NSRect(
                 x: titleMinX,
-                y: contentBounds.minY,
-                width: max(0, contentBounds.maxX - titleMinX),
-                height: contentBounds.height
+                y: titleY,
+                width: max(0, bounds.width - contentRight - titleMinX),
+                height: titleH
             )
             closeButton.frame = .zero
         }
@@ -4510,6 +4693,12 @@ private final class PaneTabButton: NSControl {
     override func mouseDown(with event: NSEvent) {
         guard isEnabled else { return }
 
+        // Double-click triggers rename regardless of drag capability.
+        if event.clickCount == 2 {
+            beginInlineRename()
+            return
+        }
+
         guard onDragStarted != nil || onDragMoved != nil || onDragEnded != nil else {
             onPress?()
             return
@@ -4517,14 +4706,23 @@ private final class PaneTabButton: NSControl {
 
         let initialLocation = convert(event.locationInWindow, from: nil)
         var didStartDragging = false
+        var didFire = false
+
+        // Wait up to doubleClickInterval before committing to a single-click press,
+        // so a second click can still be detected as a double-click.
+        let deadline = Date(timeIntervalSinceNow: NSEvent.doubleClickInterval)
 
         while let nextEvent = window?.nextEvent(
-            matching: [.leftMouseDragged, .leftMouseUp, .keyDown],
-            until: .distantFuture,
+            matching: [.leftMouseDragged, .leftMouseUp, .leftMouseDown, .keyDown],
+            until: deadline,
             inMode: .eventTracking,
             dequeue: true
         ) {
             switch nextEvent.type {
+            case .leftMouseDown where nextEvent.clickCount == 2:
+                beginInlineRename()
+                return
+
             case .keyDown where nextEvent.keyCode == 53: // Escape
                 if didStartDragging {
                     onDragCancelled?(self)
@@ -4532,13 +4730,15 @@ private final class PaneTabButton: NSControl {
                 return
 
             case .leftMouseDragged:
+                if !didFire {
+                    didFire = true
+                    onPress?()
+                }
                 let location = convert(nextEvent.locationInWindow, from: nil)
                 let delta = hypot(location.x - initialLocation.x, location.y - initialLocation.y)
                 guard delta >= 4 else { continue }
                 if !didStartDragging {
-                    guard canStartDrag?() ?? true else {
-                        continue
-                    }
+                    guard canStartDrag?() ?? true else { continue }
                     didStartDragging = true
                     onDragStarted?(self, nextEvent)
                 }
@@ -4547,7 +4747,7 @@ private final class PaneTabButton: NSControl {
             case .leftMouseUp:
                 if didStartDragging {
                     onDragEnded?(self, nextEvent)
-                } else {
+                } else if !didFire {
                     onPress?()
                 }
                 return
@@ -4555,6 +4755,11 @@ private final class PaneTabButton: NSControl {
             default:
                 return
             }
+        }
+
+        // Deadline elapsed without a second click — commit single-click press.
+        if !didStartDragging && !didFire {
+            onPress?()
         }
     }
 
@@ -4570,16 +4775,87 @@ private final class PaneTabButton: NSControl {
         }
     }
 
+    func beginInlineRename() {
+        guard !isRenaming else { return }
+        isRenaming = true
+        titleLabel.isEditable = true
+        titleLabel.isSelectable = true
+        titleLabel.isBezeled = false
+        titleLabel.focusRingType = .none
+        titleLabel.drawsBackground = false
+        titleLabel.delegate = self
+        window?.makeFirstResponder(titleLabel)
+        titleLabel.currentEditor()?.selectAll(nil)
+    }
+
+    private func commitInlineRename() {
+        guard isRenaming else { return }
+        let newName = titleLabel.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        endInlineRename()
+        if newName.isEmpty {
+            onClearAlias?()
+        } else {
+            onRename?(newName)
+        }
+    }
+
+    private func cancelInlineRename() {
+        endInlineRename()
+    }
+
+    private func endInlineRename() {
+        guard isRenaming else { return }
+        isRenaming = false
+        titleLabel.isEditable = false
+        titleLabel.isSelectable = false
+        titleLabel.delegate = nil
+        window?.makeFirstResponder(nil)
+    }
+
+    nonisolated func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        MainActor.assumeIsolated {
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                commitInlineRename()
+                return true
+            }
+            if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+                cancelInlineRename()
+                return true
+            }
+            return false
+        }
+    }
+
+    nonisolated func controlTextDidEndEditing(_ obj: Notification) {
+        MainActor.assumeIsolated {
+            if isRenaming {
+                commitInlineRename()
+            }
+        }
+    }
+
+    func setActive(_ active: Bool) {
+        guard active != isActiveTab else { return }
+        isActiveTab = active
+        titleLabel.font = .systemFont(ofSize: 11, weight: active ? .semibold : .medium)
+        updateVisualState()
+    }
+
     private func updateVisualState() {
-        titleLabel.textColor = isActiveTab ? currentTheme.shell.selectedText : currentTheme.shell.textSecondary
+        titleLabel.textColor = isActiveTab ? currentTheme.shell.textPrimary : currentTheme.shell.textSecondary
         let iconColor = renderedIcon.flatMap { currentTheme.iconColor(for: $0, selected: isActiveTab) }
             ?? titleLabel.textColor
         iconLabel.textColor = iconColor
         iconImageView.contentTintColor = iconColor
-        layer?.backgroundColor = (isActiveTab ? currentTheme.shell.selection : NSColor.clear).cgColor
-        layer?.borderWidth = 0
-        layer?.borderColor = nil
-        alphaValue = isEnabled ? 1 : 0.4
+        if isActiveTab {
+            layer?.backgroundColor = currentTheme.shell.paneCardBackground.cgColor
+            topBorderLayer.backgroundColor = currentTheme.shell.accent.cgColor
+        } else {
+            layer?.backgroundColor = NSColor.clear.cgColor
+            topBorderLayer.backgroundColor = currentTheme.shell.border.cgColor
+        }
+        topBorderLayer.isHidden = false
+        alphaValue = isEnabled ? (isActiveTab ? 1.0 : 0.6) : 0.4
     }
 }
 
