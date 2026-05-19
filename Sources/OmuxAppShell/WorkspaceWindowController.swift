@@ -6023,8 +6023,6 @@ final class PaneHeaderView: NSView {
     private var paneTabButtons: [PaneTabButton] = []
     private var focusedPaneID: PaneID?
     private var hasScrolledActiveTabIntoView = false
-    private static let tabMinWidth: CGFloat = 130
-    private static let tabMaxWidth: CGFloat = 200
 
     init(
         paneStack: PaneStack,
@@ -6059,7 +6057,7 @@ final class PaneHeaderView: NSView {
 
         tabStrip.orientation = .horizontal
         tabStrip.alignment = .centerY
-        tabStrip.spacing = 0
+        tabStrip.spacing = 6
         tabStrip.distribution = .fill
         tabStrip.translatesAutoresizingMaskIntoConstraints = false
         tabStrip.identifier = NSUserInterfaceItemIdentifier("pane-tab-strip-\(paneStack.id.rawValue)")
@@ -6125,6 +6123,7 @@ final class PaneHeaderView: NSView {
             tabStrip.topAnchor.constraint(equalTo: tabScrollView.contentView.topAnchor),
             tabStrip.bottomAnchor.constraint(equalTo: tabScrollView.contentView.bottomAnchor),
             tabStrip.leadingAnchor.constraint(equalTo: tabScrollView.contentView.leadingAnchor),
+            tabStrip.trailingAnchor.constraint(equalTo: tabScrollView.contentView.trailingAnchor),
             tabScrollView.heightAnchor.constraint(equalToConstant: ShellLayoutMetrics.paneHeaderHeight - 1),
         ])
 
@@ -6149,33 +6148,6 @@ final class PaneHeaderView: NSView {
             addButton.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
 
-        // Each tab takes an equal share of the available width (header minus add button),
-        // clamped to [tabMinWidth, tabMaxWidth]. When tabs overflow at minimum width the
-        // scroll view allows horizontal scrolling.
-        if !paneTabButtons.isEmpty {
-            let first = paneTabButtons[0]
-            let count = CGFloat(paneTabButtons.count)
-            let addButtonFootprint = addButton.intrinsicContentSize.width + 8 + 4 // trailing + gap
-            var tabConstraints: [NSLayoutConstraint] = []
-            for button in paneTabButtons {
-                // Try to fill available width equally.
-                let equalWidth = button.widthAnchor.constraint(
-                    equalTo: widthAnchor,
-                    multiplier: 1.0 / count,
-                    constant: -addButtonFootprint / count
-                )
-                equalWidth.priority = .defaultHigh
-                let minWidth = button.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.tabMinWidth)
-                let maxWidth = button.widthAnchor.constraint(lessThanOrEqualToConstant: Self.tabMaxWidth)
-                tabConstraints.append(contentsOf: [equalWidth, minWidth, maxWidth])
-                if button !== first {
-                    let sameWidth = button.widthAnchor.constraint(equalTo: first.widthAnchor)
-                    sameWidth.priority = .defaultHigh
-                    tabConstraints.append(sameWidth)
-                }
-            }
-            NSLayoutConstraint.activate(tabConstraints)
-        }
     }
 
     /// Immediately updates tab button visual state for the selected pane without
