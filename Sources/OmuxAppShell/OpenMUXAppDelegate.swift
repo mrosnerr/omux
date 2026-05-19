@@ -24,6 +24,7 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
     private weak var splitDownMenuItem: NSMenuItem?
     private weak var removePaneMenuItem: NSMenuItem?
     private weak var createPaneTabMenuItem: NSMenuItem?
+    private weak var createWorktreePaneTabMenuItem: NSMenuItem?
     private weak var closePaneTabMenuItem: NSMenuItem?
     private weak var nextPaneTabMenuItem: NSMenuItem?
     private weak var previousPaneTabMenuItem: NSMenuItem?
@@ -137,6 +138,9 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
                 initialIcons: configurationCoordinator.iconConfiguration(),
                 vaultStore: self.vaultStore,
                 vaultConfiguration: vaultConfiguration,
+                onClosePaneTab: { [weak self] paneID in
+                    self?.closePaneTabWithWorktreePrompt(paneID: paneID)
+                },
                 onExtensionPaneAction: { [weak self] request in
                     self?.dispatchExtensionPaneAction(request)
                 }
@@ -161,10 +165,10 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
                 return .object(["ok": .bool(true), "action": .string(action)])
             }
             windowController.window?.delegate = self
-            windowController.showWindow(nil)
+            windowController.showWindow(self)
             if let window = windowController.window {
                 window.center()
-                window.makeKeyAndOrderFront(nil)
+                window.makeKeyAndOrderFront(self)
             }
             NSApplication.shared.activate(ignoringOtherApps: true)
             configurationCoordinator.onThemeChange = { [weak self] theme in
@@ -335,14 +339,196 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         }
     }
 
-    @objc private func closePaneTabFromMenu(_ sender: Any?) {
+    @objc private func createWorktreePaneTabFromMenu(_ sender: Any?) {
         _ = sender
         do {
-            _ = try workspaceController.closePaneTab()
+            let workspace = try workspaceController.createPaneTab()
+            do {
+                let result = try workspaceController.runCommand(target: .focused, command: "omux worktree --clear")
+                if result == nil {
+                    // runCommand returned nil (no focused terminal target); close the orphaned tab.
+                    if let paneID = workspace?.focusedPane?.id {
+                        _ = try? workspaceController.closePane(paneID: paneID)
+                    }
+                    assertionFailure("Failed to inject worktree command: no focused terminal target")
+                }
+            } catch {
+                // If we can't inject the command, close the tab we just opened to avoid leaving
+                // an orphaned empty tab behind.
+                if let paneID = workspace?.focusedPane?.id {
+                    _ = try? workspaceController.closePane(paneID: paneID)
+                }
+                assertionFailure("Failed to inject worktree command: \(error)")
+            }
+            refreshMenuValidation()
+        } catch {
+            assertionFailure("Failed to create worktree pane tab: \(error)")
+        }
+    }
+
+    @objc private func closePaneTabFromMenu(_ sender: Any?) {
+        _ = sender
+        closePaneTabWithWorktreePrompt()
+    }
+
+    private func closePaneTabWithWorktreePrompt(paneID: PaneID? = nil) {
+        // Capture the working directory before closing (fast, no git I/O).
+        let closeCandidate = workspaceController.paneTabCloseCandidate(paneID: paneID)
+        do {
+            if let paneID {
+                _ = try workspaceController.closePane(paneID: paneID)
+            } else {
+                _ = try workspaceController.closePaneTab()
+            }
             refreshMenuValidation()
         } catch {
             assertionFailure("Failed to close pane tab: \(error)")
+            return
         }
+
+        // After the close succeeds, check for a linked worktree off the main thread
+        // so git I/O never blocks the UI.
+        guard let closeCandidate else { return }
+        let workingDirectory = closeCandidate.workingDirectory
+        let excludedPaneID = closeCandidate.paneID
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let candidate = Self.linkedGitWorktreeOffMain(for: workingDirectory) else { return }
+            // Re-check on the main thread now that we have the rootPath.
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                let hasOther = self.workspaceController.hasOtherTerminalPane(
+                    inside: candidate.rootPath,
+                    excluding: excludedPaneID
+                )
+                if hasOther == false {
+                    self.presentWorktreeRemovalPrompt(candidate)
+                }
+            }
+        }
+    }
+
+    private struct WorktreeDeletionCandidate: Sendable {
+        let rootPath: String
+        let removalWorkingDirectory: String
+    }
+
+    private nonisolated static func linkedGitWorktreeOffMain(for workingDirectory: String) -> WorktreeDeletionCandidate? {
+        guard let rootPath = gitOutputOffMain(["-C", workingDirectory, "rev-parse", "--show-toplevel"]) else {
+            return nil
+        }
+        guard let gitDirectory = gitOutputOffMain(["-C", workingDirectory, "rev-parse", "--git-dir"]) else {
+            return nil
+        }
+        guard let gitCommonDirectory = gitOutputOffMain(["-C", workingDirectory, "rev-parse", "--git-common-dir"]) else {
+            return nil
+        }
+
+        let gitDirectoryURL = resolvedGitURL(gitDirectory, relativeTo: workingDirectory)
+        let gitCommonDirectoryURL = resolvedGitURL(gitCommonDirectory, relativeTo: workingDirectory)
+        guard gitDirectoryURL != gitCommonDirectoryURL else {
+            return nil
+        }
+
+        let removalWorkingDirectory = gitCommonDirectoryURL.lastPathComponent == ".git"
+            ? gitCommonDirectoryURL.deletingLastPathComponent().path
+            : rootPath
+        return WorktreeDeletionCandidate(
+            rootPath: URL(fileURLWithPath: rootPath, isDirectory: true).standardizedFileURL.path,
+            removalWorkingDirectory: removalWorkingDirectory
+        )
+    }
+
+    private func presentWorktreeRemovalPrompt(_ candidate: WorktreeDeletionCandidate) {
+        let alert = NSAlert()
+        alert.messageText = "Delete Git Worktree?"
+        alert.informativeText = "The last OpenMUX tab using this worktree was closed:\n\n\(candidate.rootPath)"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Delete Worktree")
+        alert.addButton(withTitle: "Keep")
+
+        let removeWorktree = { [weak self] in
+            self?.removeGitWorktreeAsync(candidate)
+        }
+
+        if let window = windowController?.window {
+            alert.beginSheetModal(for: window) { response in
+                if response == .alertFirstButtonReturn {
+                    removeWorktree()
+                }
+            }
+        } else if alert.runModal() == .alertFirstButtonReturn {
+            removeWorktree()
+        }
+    }
+
+    private func removeGitWorktreeAsync(_ candidate: WorktreeDeletionCandidate) {
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let result = Self.runGitOffMain(arguments: ["-C", candidate.removalWorkingDirectory, "worktree", "remove", candidate.rootPath])
+            await MainActor.run { [weak self] in
+                guard let self, result.terminationStatus != 0 else { return }
+                self.presentAlert(
+                    messageText: "Delete Worktree Failed",
+                    informativeText: result.message ?? "git worktree remove exited with status \(result.terminationStatus).",
+                    style: .warning
+                )
+            }
+        }
+    }
+
+    private nonisolated static func gitOutputOffMain(_ arguments: [String]) -> String? {
+        let result = runGitOffMain(arguments: arguments)
+        guard result.terminationStatus == 0 else {
+            return nil
+        }
+        let output = result.standardOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+        return output.isEmpty ? nil : output
+    }
+
+    private nonisolated static func runGitOffMain(arguments: [String]) -> GitCommandResult {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git", isDirectory: false)
+        process.arguments = arguments
+
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return GitCommandResult(
+                terminationStatus: 1,
+                standardOutput: "",
+                standardError: error.localizedDescription
+            )
+        }
+
+        return GitCommandResult(
+            terminationStatus: process.terminationStatus,
+            standardOutput: String(decoding: stdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self),
+            standardError: String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        )
+    }
+
+    private struct GitCommandResult: Sendable {
+        let terminationStatus: Int32
+        let standardOutput: String
+        let standardError: String
+
+        var message: String? {
+            [standardError, standardOutput]
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .first { $0.isEmpty == false }
+        }
+    }
+
+    private nonisolated static func resolvedGitURL(_ path: String, relativeTo workingDirectory: String) -> URL {
+        URL(
+            fileURLWithPath: path,
+            relativeTo: URL(fileURLWithPath: workingDirectory, isDirectory: true)
+        ).standardizedFileURL
     }
 
     @objc private func focusNextPaneTabFromMenu(_ sender: Any?) {
@@ -782,6 +968,14 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         createPaneTabMenuItem.target = self
         paneMenu.addItem(createPaneTabMenuItem)
 
+        let createWorktreePaneTabMenuItem = NSMenuItem(
+            title: "New Worktree Pane Tab…",
+            action: #selector(createWorktreePaneTabFromMenu(_:)),
+            keyEquivalent: ""
+        )
+        createWorktreePaneTabMenuItem.target = self
+        paneMenu.addItem(createWorktreePaneTabMenuItem)
+
         let closePaneTabMenuItem = NSMenuItem(
             title: "Close Pane Tab",
             action: #selector(closePaneTabFromMenu(_:)),
@@ -966,6 +1160,7 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         self.splitDownMenuItem = splitDownMenuItem
         self.removePaneMenuItem = removePaneMenuItem
         self.createPaneTabMenuItem = createPaneTabMenuItem
+        self.createWorktreePaneTabMenuItem = createWorktreePaneTabMenuItem
         self.closePaneTabMenuItem = closePaneTabMenuItem
         self.nextPaneTabMenuItem = nextPaneTabMenuItem
         self.previousPaneTabMenuItem = previousPaneTabMenuItem
@@ -1023,6 +1218,7 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         splitDownMenuItem?.isEnabled = hasWorkspace
         removePaneMenuItem?.isEnabled = workspaceController.canRemoveActivePane()
         createPaneTabMenuItem?.isEnabled = hasWorkspace
+        createWorktreePaneTabMenuItem?.isEnabled = workspaceController.resolveTerminalTarget(.focused) != nil
         closePaneTabMenuItem?.isEnabled = workspaceController.canClosePaneTab()
         nextPaneTabMenuItem?.isEnabled = workspaceController.canFocusPaneTab()
         previousPaneTabMenuItem?.isEnabled = workspaceController.canFocusPaneTab()
@@ -1056,6 +1252,7 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         setShortcut(for: splitDownMenuItem, action: .paneSplitDown)
         setShortcut(for: removePaneMenuItem, action: .paneRemove)
         setShortcut(for: createPaneTabMenuItem, action: .paneTabCreate)
+        setShortcut(for: createWorktreePaneTabMenuItem, action: .paneTabCreateWorktree)
         setShortcut(for: closePaneTabMenuItem, action: .paneTabClose)
         setShortcut(for: nextPaneTabMenuItem, action: .paneTabNext)
         setShortcut(for: previousPaneTabMenuItem, action: .paneTabPrevious)

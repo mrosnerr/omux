@@ -838,22 +838,25 @@ public final class GhosttyTerminalBridge: @unchecked Sendable {
         onTextActivation: (@MainActor (TerminalTextActivationRequest) -> Bool)?,
         onTextActivationHover: (@MainActor (TerminalTextActivationRequest) -> Bool)?
     ) -> any TerminalSurfaceContentHosting {
-        if let surface = surface(for: pane.id),
-            let runtimeView = runtime.makeHostedSurfaceView(for: pane.id, runtimeSurfaceID: surface.runtimeSurfaceID) {
-            return RuntimeTerminalSurfaceContentHost(
-                pane: pane,
-                runtimeView: runtimeView,
-                bridge: self,
-                isFocused: isFocused,
-                themePalette: themePalette,
-                onFocus: onFocus,
-                terminalSizeProvider: terminalSizeProvider,
-                onTextActivation: onTextActivation,
-                onTextActivationHover: onTextActivationHover
-            )
+        let surface = surface(for: pane.id)
+        guard let surface else {
+            preconditionFailure("Missing Ghostty surface for pane \(pane.id.rawValue)")
         }
-
-        preconditionFailure("Missing Ghostty runtime view for pane \(pane.id.rawValue)")
+        let runtimeView = runtime.makeHostedSurfaceView(for: pane.id, runtimeSurfaceID: surface.runtimeSurfaceID)
+        guard let runtimeView else {
+            preconditionFailure("Missing Ghostty runtime view for pane \(pane.id.rawValue)")
+        }
+        return RuntimeTerminalSurfaceContentHost(
+            pane: pane,
+            runtimeView: runtimeView,
+            bridge: self,
+            isFocused: isFocused,
+            themePalette: themePalette,
+            onFocus: onFocus,
+            terminalSizeProvider: terminalSizeProvider,
+            onTextActivation: onTextActivation,
+            onTextActivationHover: onTextActivationHover
+        )
     }
 
     func setHostedSurfaceFocused(paneID: PaneID, isFocused: Bool) {

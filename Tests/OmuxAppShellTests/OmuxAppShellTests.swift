@@ -179,6 +179,11 @@ final class OmuxAppShellTests: XCTestCase {
             modifiers: [.command]
         ) ?? false)
         XCTAssertTrue(paneMenu?.items.containsShortcut(
+            title: "New Worktree Pane Tab…",
+            key: "g",
+            modifiers: [.command, .shift]
+        ) ?? false)
+        XCTAssertTrue(paneMenu?.items.containsShortcut(
             title: "Close Pane Tab",
             key: "w",
             modifiers: [.command]
@@ -681,6 +686,27 @@ final class OmuxAppShellTests: XCTestCase {
         XCTAssertEqual(controller.invokeCommandPaletteResult(vaultResult), .inert)
     }
 
+    func testWorktreePaneTabActionRunsCLICommandWithGeneratedBranch() throws {
+        let runtime = ActionEmittingGhosttyRuntime()
+        let controller = WorkspaceController(
+            bridge: GhosttyTerminalBridge(runtime: runtime),
+            hookRunner: ExternalHookRunner()
+        )
+        _ = try controller.openWorkspace(at: "/tmp")
+
+        let commands = CommandPaletteCommandCatalog.commands(controller: controller, keyBindings: .defaults)
+        let worktree = try XCTUnwrap(CommandPaletteSearch.commandResults(query: "worktree", commands: commands).first {
+            $0.invocationTarget == .action(.paneTabCreateWorktree)
+        })
+
+        XCTAssertEqual(worktree.shortcutLabel, "⌘⇧G")
+        XCTAssertEqual(worktree.category, .action)
+        XCTAssertEqual(controller.invokeCommandPaletteResult(worktree), .invoked)
+        XCTAssertEqual(runtime.executedCommands.count, 1)
+        XCTAssertTrue(runtime.executedCommands[0].hasPrefix("omux worktree 'worktree/"))
+        XCTAssertTrue(runtime.executedCommands[0].hasSuffix("'"))
+    }
+
     func testCommandPaletteConfigOpenCommandsReflectTerminalRequirement() throws {
         let controller = WorkspaceController(
             bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
@@ -739,6 +765,11 @@ final class OmuxAppShellTests: XCTestCase {
             descriptor.id == "builtin:switch-theme"
                 && descriptor.command.kind == .builtin
                 && descriptor.command.target == "theme.switch"
+        })
+        XCTAssertTrue(descriptors.contains { descriptor in
+            descriptor.id == "action:pane-tab.create-worktree"
+                && descriptor.command.kind == .action
+                && descriptor.command.target == "pane-tab.create-worktree"
         })
         XCTAssertEqual(Set(descriptors.map(\.id)).count, descriptors.count)
     }
@@ -1562,6 +1593,74 @@ final class OmuxAppShellTests: XCTestCase {
         let paneTabWorkspace = try XCTUnwrap(controller.createPaneTab())
 
         XCTAssertEqual(paneTabWorkspace.focusedPane?.session.workingDirectory, "/tmp/project/packages/web")
+    }
+
+    func testPaneTabCreationCanUseExplicitWorkingDirectoryAndTitle() throws {
+        let runtime = ActionEmittingGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let controller = WorkspaceController(
+            bridge: bridge,
+            hookRunner: ExternalHookRunner()
+        )
+
+        let workspace = try controller.openWorkspace(at: "/tmp/project")
+        let originalPane = try XCTUnwrap(workspace.focusedPane)
+        let originalSurfaceID = try XCTUnwrap(bridge.surface(for: originalPane.id)?.runtimeSurfaceID)
+        runtime.emit(.workingDirectoryChanged("/tmp/project/packages/api"), on: originalSurfaceID)
+
+        let paneTabWorkspace = try XCTUnwrap(controller.createPaneTab(
+            workingDirectory: "/tmp/project-worktree",
+            title: "feature-branch"
+        ))
+
+        XCTAssertEqual(paneTabWorkspace.focusedPane?.session.workingDirectory, "/tmp/project-worktree")
+        XCTAssertEqual(paneTabWorkspace.focusedPane?.title, "feature-branch")
+    }
+
+    func testPaneTabCloseCandidateUsesFocusedTerminalWorkingDirectory() throws {
+        let controller = WorkspaceController(
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
+            hookRunner: ExternalHookRunner()
+        )
+
+        _ = try controller.openWorkspace(at: "/tmp/project")
+        let paneTabWorkspace = try XCTUnwrap(controller.createPaneTab(
+            workingDirectory: "/tmp/project-worktree-feature",
+            title: "feature"
+        ))
+        let paneID = try XCTUnwrap(paneTabWorkspace.focusedPane?.id)
+
+        XCTAssertEqual(
+            controller.paneTabCloseCandidate(),
+            PaneTabCloseCandidate(paneID: paneID, workingDirectory: "/tmp/project-worktree-feature")
+        )
+    }
+
+    func testOtherTerminalPaneDetectionTreatsSubdirectoriesAsSameWorktree() throws {
+        let controller = WorkspaceController(
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
+            hookRunner: ExternalHookRunner()
+        )
+
+        _ = try controller.openWorkspace(at: "/tmp/project")
+        let firstWorktreeTab = try XCTUnwrap(controller.createPaneTab(
+            workingDirectory: "/tmp/project-worktree-feature",
+            title: "feature"
+        ))
+        let firstPaneID = try XCTUnwrap(firstWorktreeTab.focusedPane?.id)
+        _ = try XCTUnwrap(controller.createPaneTab(
+            workingDirectory: "/tmp/project-worktree-feature/packages/api",
+            title: "api"
+        ))
+
+        XCTAssertTrue(controller.hasOtherTerminalPane(
+            inside: "/tmp/project-worktree-feature",
+            excluding: firstPaneID
+        ))
+        XCTAssertFalse(controller.hasOtherTerminalPane(
+            inside: "/tmp/project-worktree-feature-other",
+            excluding: firstPaneID
+        ))
     }
 
     func testNewPanesDoNotInheritTerminalReportedTitleFromFocusedPane() throws {
@@ -4045,14 +4144,14 @@ final class OmuxAppShellTests: XCTestCase {
         }
 
         runtime.emit(.titleChanged("Codex reading"), on: runtimeSurfaceID)
-        wait(for: [firstChangeDelivered], timeout: 1)
+        wait(for: [firstChangeDelivered], timeout: 2)
 
         runtime.emit(.titleChanged("Codex thinking"), on: runtimeSurfaceID)
         runtime.emit(.titleChanged("Codex writing"), on: runtimeSurfaceID)
         XCTAssertEqual(controller.activeWorkspace()?.focusedPane?.terminalState.reportedTitle, "Codex writing")
         XCTAssertEqual(controller.activeWorkspace()?.focusedPane?.title, "Codex reading")
 
-        RunLoop.current.run(until: Date().addingTimeInterval(0.03))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         XCTAssertEqual(changeCount, 1)
         XCTAssertEqual(controller.activeWorkspace()?.focusedPane?.title, "Codex reading")
 
@@ -5117,6 +5216,58 @@ final class OmuxAppShellTests: XCTestCase {
         let previousPaneResponse = try requestControlMethod(.focusPreviousPane, socketPath: socketURL.path(percentEncoded: false))
         XCTAssertNil(previousPaneResponse.error)
         XCTAssertEqual(targetPaneID(in: previousPaneResponse), splitPaneID)
+    }
+
+    @MainActor
+    func testControlPlaneCreatePaneTabAcceptsWorkingDirectoryTitleAndPaneStack() throws {
+        let runtime = ActionEmittingGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let controller = WorkspaceController(
+            bridge: bridge,
+            hookRunner: ExternalHookRunner()
+        )
+        let configurationCoordinator = OpenMUXConfigurationCoordinator(
+            bridge: bridge,
+            initialState: OpenMUXPreparedConfiguration(
+                theme: .defaultTheme,
+                defaultWorkspaceRootPath: "/tmp",
+                keyBindingRegistry: .defaults,
+                compiledConfigURL: nil,
+                compiledHash: nil,
+                diagnostics: []
+            )
+        )
+        let socketURL = FileManager.default.temporaryDirectory
+            .appending(path: "ptab-\(UUID().uuidString).sock")
+        let service = OpenMUXControlPlaneService(
+            controller: controller,
+            configurationCoordinator: configurationCoordinator,
+            socketPath: socketURL.path(percentEncoded: false)
+        )
+        defer {
+            service.stop()
+            try? FileManager.default.removeItem(at: socketURL)
+        }
+
+        try service.start()
+
+        let workspace = try controller.openWorkspace(at: "/tmp/project")
+        let stackID = try XCTUnwrap(workspace.focusedPaneStack?.id)
+        let response = try requestControlMethod(
+            .createPaneTab,
+            socketPath: socketURL.path(percentEncoded: false),
+            params: .object([
+                "paneStackID": .string(stackID.rawValue),
+                "workingDirectory": .string("/tmp/project-worktree"),
+                "title": .string("feature-branch"),
+            ])
+        )
+
+        XCTAssertNil(response.error)
+        let focusedPane = try XCTUnwrap(controller.activeWorkspace()?.focusedPane)
+        XCTAssertEqual(focusedPane.session.workingDirectory, "/tmp/project-worktree")
+        XCTAssertEqual(focusedPane.title, "feature-branch")
+        XCTAssertEqual(targetPaneID(in: response), focusedPane.id)
     }
 
     @MainActor
