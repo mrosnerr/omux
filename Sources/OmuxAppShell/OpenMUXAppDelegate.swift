@@ -6,11 +6,13 @@ import OmuxCore
 import OmuxHooks
 import OmuxTerminalBridge
 import OmuxTheme
+import OmuxVault
 
 @MainActor
 public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let workspaceController: WorkspaceController
     private let controlPlaneService: OpenMUXControlPlaneService
+    private let vaultStore: VaultStore?
     private let extensionPaneActionService: ExtensionPaneActionService
     private let configurationCoordinator: OpenMUXConfigurationCoordinator
     private let workspacePersistenceStore: any WorkspacePersistenceStoring
@@ -32,7 +34,12 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
     private weak var resizeSplitDownMenuItem: NSMenuItem?
     private weak var resizeSplitLeftMenuItem: NSMenuItem?
     private weak var resizeSplitRightMenuItem: NSMenuItem?
+    private weak var agentSessionsMenuItem: NSMenuItem?
+    private weak var openAgentSessionsMenuItem: NSMenuItem?
+    private weak var searchAgentSessionsMenuItem: NSMenuItem?
+    private weak var reindexAgentSessionsMenuItem: NSMenuItem?
     private weak var toggleSidebarMenuItem: NSMenuItem?
+    private weak var toggleAgentSessionsMenuItem: NSMenuItem?
     private weak var commandPaletteWorkspaceMenuItem: NSMenuItem?
     private weak var commandPaletteCommandMenuItem: NSMenuItem?
     private weak var findInPaneMenuItem: NSMenuItem?
@@ -47,6 +54,7 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         self?.persistWorkspaceLayoutStateNow()
     }
     private let autoCheckUpdate: Bool
+    private var vaultConfiguration: VaultConfiguration
     private let cliInstallStatusResolver = OmuxCLIInstallStatusResolver()
     private let pluginMenuContributionProvider: () -> [PluginMenuContribution]
 
@@ -72,10 +80,19 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
             persistedScrollback: preparedConfiguration.persistedScrollback,
             paneConfiguration: preparedConfiguration.panes,
             markdownPreviewConfiguration: preparedConfiguration.markdownPreview,
+            aiStatusConfiguration: preparedConfiguration.aiStatus,
             scrollbackReplayStore: ScrollbackReplayStore(directoryURL: Self.appReplayDirectory()),
             scrollbackReplayWrapperStore: ScrollbackReplayWrapperStore(directoryURL: Self.appReplayDirectory())
         )
         self.workspaceController = workspaceController
+        let vaultStore: VaultStore?
+        do {
+            vaultStore = try VaultStore(configuration: preparedConfiguration.agentSessions)
+        } catch {
+            fputs("error: failed to initialize Agent Sessions store; Agent Sessions disabled for this session. configuration=\(preparedConfiguration.agentSessions), error=\(error)\n", stderr)
+            vaultStore = nil
+        }
+        self.vaultStore = vaultStore
         let extensionPaneActionService = ExtensionPaneActionService(controller: workspaceController)
         self.extensionPaneActionService = extensionPaneActionService
         self.configurationCoordinator = OpenMUXConfigurationCoordinator(
@@ -85,11 +102,13 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         self.controlPlaneService = OpenMUXControlPlaneService(
             controller: workspaceController,
             configurationCoordinator: configurationCoordinator,
-            extensionPaneActionService: extensionPaneActionService
+            extensionPaneActionService: extensionPaneActionService,
+            vaultStore: vaultStore
         )
         self.workspacePersistenceStore = WorkspacePersistenceStore.shared
         self.initialTheme = preparedConfiguration.theme
         self.autoCheckUpdate = preparedConfiguration.autoCheckUpdate
+        self.vaultConfiguration = preparedConfiguration.agentSessions
         self.keyBindingRegistry = preparedConfiguration.keyBindingRegistry
         OpenMUXShortcutClassifier.updateKeyBindings(preparedConfiguration.keyBindingRegistry)
         super.init()
@@ -116,11 +135,31 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
                 initialTheme: initialTheme,
                 initialPanes: configurationCoordinator.paneConfiguration(),
                 initialIcons: configurationCoordinator.iconConfiguration(),
+                vaultStore: self.vaultStore,
+                vaultConfiguration: vaultConfiguration,
                 onExtensionPaneAction: { [weak self] request in
                     self?.dispatchExtensionPaneAction(request)
                 }
             )
             self.windowController = windowController
+            controlPlaneService.agentSessionsUIHandler = { [weak self] action in
+                guard let self, let windowController = self.windowController else {
+                    return .object(["ok": .bool(false), "error": .string("window unavailable")])
+                }
+                switch action {
+                case "open", "show":
+                    windowController.setAgentSessionsVisibility(true)
+                case "close", "hide":
+                    windowController.setAgentSessionsVisibility(false)
+                case "toggle":
+                    windowController.toggleAgentSessionsVisibility()
+                case "palette", "command-palette":
+                    windowController.presentAgentSessionsPalette(keyBindings: self.keyBindingRegistry)
+                default:
+                    return .object(["ok": .bool(false), "error": .string("unsupported action")])
+                }
+                return .object(["ok": .bool(true), "action": .string(action)])
+            }
             windowController.window?.delegate = self
             windowController.showWindow(nil)
             if let window = windowController.window {
@@ -150,6 +189,16 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
             configurationCoordinator.onMarkdownPreviewConfigurationChange = { [weak self] configuration in
                 self?.workspaceController.updateMarkdownPreviewConfiguration(configuration)
             }
+            configurationCoordinator.onAIStatusConfigurationChange = { [weak self] configuration in
+                self?.workspaceController.updateAIStatusConfiguration(configuration)
+            }
+            configurationCoordinator.onAgentSessionsConfigurationChange = { [weak self] configuration in
+                self?.vaultConfiguration = configuration
+                DispatchQueue.main.async { [weak self] in
+                    self?.refreshMenuValidation()
+                    NSApp.mainMenu?.update()
+                }
+            }
             configurationCoordinator.onKeyBindingsChange = { [weak self] registry in
                 self?.applyKeyBindings(registry)
             }
@@ -168,6 +217,11 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
                 object: nil
             )
             try controlPlaneService.start()
+            if vaultConfiguration.enabled && vaultConfiguration.indexOnLaunch, let vaultStore = self.vaultStore {
+                Task { @MainActor [weak self, vaultStore] in
+                    await self?.reindexAgentSessionsIncrementally(vaultStore: vaultStore)
+                }
+            }
             if autoCheckUpdate {
                 let updateChecker = OpenMUXUpdateAvailabilityChecker(controller: workspaceController)
                 Task { @MainActor in
@@ -348,6 +402,54 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
     @objc private func toggleSidebarFromMenu(_ sender: Any?) {
         _ = sender
         windowController?.toggleSidebarVisibility()
+    }
+
+    @objc private func toggleAgentSessionsFromMenu(_ sender: Any?) {
+        _ = sender
+        windowController?.toggleAgentSessionsVisibility()
+    }
+
+    @objc private func openAgentSessionsFromMenu(_ sender: Any?) {
+        _ = sender
+        windowController?.setAgentSessionsVisibility(true)
+    }
+
+    @objc private func searchAgentSessionsFromMenu(_ sender: Any?) {
+        _ = sender
+        windowController?.presentAgentSessionsPalette(keyBindings: keyBindingRegistry)
+    }
+
+    @objc private func reindexAgentSessionsFromMenu(_ sender: Any?) {
+        _ = sender
+        guard vaultConfiguration.enabled, let vaultStore else {
+            return
+        }
+        Task { @MainActor [weak self, vaultStore] in
+            await self?.reindexAgentSessionsIncrementally(vaultStore: vaultStore)
+        }
+    }
+
+    @MainActor
+    private func reindexAgentSessionsIncrementally(vaultStore: VaultStore) async {
+        for agent in prioritizedAgentSessionsAgents() {
+            do {
+                let warnings = try await vaultStore.reindex(agent: agent)
+                for warning in warnings {
+                    fputs("Agent Sessions warning: \(warning)\n", stderr)
+                }
+                windowController?.vaultIndexDidUpdate()
+            } catch {
+                fputs("Agent Sessions indexing failed for \(agent.rawValue): \(error)\n", stderr)
+            }
+        }
+    }
+
+    private func prioritizedAgentSessionsAgents() -> [VaultAgentKind] {
+        let priority: [VaultAgentKind] = [.codex, .gemini, .copilot]
+        let included = vaultConfiguration.includedAgents.filter { $0 != .custom }
+        var result = priority.filter { included.contains($0) }
+        result += included.filter { result.contains($0) == false }
+        return result
     }
 
     @objc private func openWorkspaceCommandPaletteFromMenu(_ sender: Any?) {
@@ -772,6 +874,38 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         paneMenuItem.submenu = paneMenu
         mainMenu.addItem(paneMenuItem)
 
+        let agentSessionsMenuItem = NSMenuItem()
+        let agentSessionsMenu = NSMenu(title: "Agents")
+
+        let openAgentSessionsMenuItem = NSMenuItem(
+            title: "Show Agent Sessions",
+            action: #selector(openAgentSessionsFromMenu(_:)),
+            keyEquivalent: ""
+        )
+        openAgentSessionsMenuItem.target = self
+        agentSessionsMenu.addItem(openAgentSessionsMenuItem)
+
+        let searchAgentSessionsMenuItem = NSMenuItem(
+            title: "Search Agent Sessions…",
+            action: #selector(searchAgentSessionsFromMenu(_:)),
+            keyEquivalent: ""
+        )
+        searchAgentSessionsMenuItem.target = self
+        agentSessionsMenu.addItem(searchAgentSessionsMenuItem)
+
+        agentSessionsMenu.addItem(.separator())
+
+        let reindexAgentSessionsMenuItem = NSMenuItem(
+            title: "Reindex Agent Sessions",
+            action: #selector(reindexAgentSessionsFromMenu(_:)),
+            keyEquivalent: ""
+        )
+        reindexAgentSessionsMenuItem.target = self
+        agentSessionsMenu.addItem(reindexAgentSessionsMenuItem)
+
+        agentSessionsMenuItem.submenu = agentSessionsMenu
+        mainMenu.addItem(agentSessionsMenuItem)
+
         let viewMenuItem = NSMenuItem()
         let viewMenu = NSMenu(title: "View")
 
@@ -782,6 +916,14 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         )
         toggleSidebarMenuItem.target = self
         viewMenu.addItem(toggleSidebarMenuItem)
+
+        let toggleAgentSessionsMenuItem = NSMenuItem(
+            title: "Toggle Agent Sessions",
+            action: #selector(toggleAgentSessionsFromMenu(_:)),
+            keyEquivalent: ""
+        )
+        toggleAgentSessionsMenuItem.target = self
+        viewMenu.addItem(toggleAgentSessionsMenuItem)
 
         viewMenu.addItem(.separator())
 
@@ -811,6 +953,7 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         self.renameWorkspaceMenuItem = renameWorkspaceMenuItem
         self.deleteWorkspaceMenuItem = deleteWorkspaceMenuItem
         self.toggleSidebarMenuItem = toggleSidebarMenuItem
+        self.toggleAgentSessionsMenuItem = toggleAgentSessionsMenuItem
         self.commandPaletteWorkspaceMenuItem = commandPaletteWorkspaceMenuItem
         self.commandPaletteCommandMenuItem = commandPaletteCommandMenuItem
         self.findInPaneMenuItem = findInPaneMenuItem
@@ -833,6 +976,10 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         self.resizeSplitDownMenuItem = resizeSplitDownMenuItem
         self.resizeSplitLeftMenuItem = resizeSplitLeftMenuItem
         self.resizeSplitRightMenuItem = resizeSplitRightMenuItem
+        self.agentSessionsMenuItem = agentSessionsMenuItem
+        self.openAgentSessionsMenuItem = openAgentSessionsMenuItem
+        self.searchAgentSessionsMenuItem = searchAgentSessionsMenuItem
+        self.reindexAgentSessionsMenuItem = reindexAgentSessionsMenuItem
         applyMenuKeyBindings()
         return mainMenu
     }
@@ -854,7 +1001,14 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         installCLIMenuItem?.title = cliInstallStatus.menuTitle
         installCLIMenuItem?.isEnabled = cliInstallStatus.isActionable
         let hasWorkspace = workspaceController.activeWorkspace() != nil
+        let agentSessionsMenuVisible = vaultConfiguration.enabled
+        agentSessionsMenuItem?.isHidden = !agentSessionsMenuVisible
+        openAgentSessionsMenuItem?.isEnabled = hasWorkspace && agentSessionsMenuVisible
+        searchAgentSessionsMenuItem?.isEnabled = hasWorkspace && agentSessionsMenuVisible
+        reindexAgentSessionsMenuItem?.isEnabled = hasWorkspace && agentSessionsMenuVisible && vaultStore != nil
         toggleSidebarMenuItem?.isEnabled = hasWorkspace
+        toggleAgentSessionsMenuItem?.isHidden = !agentSessionsMenuVisible
+        toggleAgentSessionsMenuItem?.isEnabled = hasWorkspace && agentSessionsMenuVisible
         commandPaletteWorkspaceMenuItem?.isEnabled = hasWorkspace
         commandPaletteCommandMenuItem?.isEnabled = hasWorkspace
         findInPaneMenuItem?.isEnabled = hasWorkspace
@@ -885,6 +1039,7 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         setShortcut(for: newWorkspaceMenuItem, action: .workspaceCreate)
         setShortcut(for: deleteWorkspaceMenuItem, action: .workspaceClose)
         setShortcut(for: toggleSidebarMenuItem, action: .sidebarToggle)
+        setShortcut(for: toggleAgentSessionsMenuItem, action: .agentSessionsToggle)
         setShortcut(for: commandPaletteWorkspaceMenuItem, action: .commandPaletteWorkspace)
         setShortcut(for: commandPaletteCommandMenuItem, action: .commandPaletteCommand)
         setShortcut(for: findInPaneMenuItem, action: .paneFind)
