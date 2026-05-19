@@ -1930,8 +1930,8 @@ final class WorkspaceShellViewController: NSViewController {
     private func presentRenamePanePrompt(paneID: PaneID, currentTitle: String) {
         let alert = NSAlert()
         alert.messageText = "Rename Tab"
-        alert.informativeText = "Choose a new name for this terminal tab."
-        alert.addButton(withTitle: "Rename")
+        alert.informativeText = "Set a custom tab name. Leave empty to clear the custom name."
+        alert.addButton(withTitle: "Save")
         alert.addButton(withTitle: "Cancel")
 
         let nameField = NSTextField(string: currentTitle)
@@ -1940,7 +1940,12 @@ final class WorkspaceShellViewController: NSViewController {
 
         let rename = { [weak self] in
             guard let self else { return }
-            _ = controller.renamePaneTab(paneID, to: nameField.stringValue)
+            let trimmed = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                _ = try? controller.clearPaneAlias(paneID)
+            } else {
+                _ = try? controller.setPaneAlias(paneID, to: trimmed)
+            }
         }
 
         if let window = view.window {
@@ -2012,7 +2017,7 @@ final class WorkspaceShellViewController: NSViewController {
     ) -> NSMenu {
         let menu = NSMenu()
         menu.addItem(withTitle: "Rename…", action: nil, keyEquivalent: "").onSelect { [weak self] in
-            self?.presentRenamePanePrompt(paneID: pane.id, currentTitle: pane.title)
+            self?.presentRenamePanePrompt(paneID: pane.id, currentTitle: pane.displayTitle)
         }
 
         let popOutItem = menu.addItem(withTitle: "Pop Out to Modal", action: nil, keyEquivalent: "")
@@ -6059,10 +6064,11 @@ final class PaneHeaderView: NSView {
         tabStrip.orientation = .horizontal
         tabStrip.alignment = .centerY
         tabStrip.spacing = 6
+        tabStrip.distribution = .fill
         tabStrip.translatesAutoresizingMaskIntoConstraints = false
         tabStrip.identifier = NSUserInterfaceItemIdentifier("pane-tab-strip-\(paneStack.id.rawValue)")
         tabStrip.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        tabStrip.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        tabStrip.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         for pane in paneStack.panes {
             let button = PaneTabButton(
@@ -6300,7 +6306,7 @@ final class PaneProgressOrbView: NSView {
 }
 
 struct PaneTabTitleFormatter {
-    static let defaultMaximumLength = 44
+    static let defaultMaximumLength = 40
     private static let truncationMarker = "..."
 
     static func displayTitle(
@@ -6385,6 +6391,7 @@ private final class PaneTabButton: NSControl, NSTextFieldDelegate {
     private let renderedIcon: OmuxRenderedIcon?
     private let iconSymbolImage: NSImage?
     private let progress: PaneProgress?
+    private let fullDisplayTitle: String
     var isActivePaneTab: Bool { isActiveTab }
 
     init(
@@ -6402,16 +6409,17 @@ private final class PaneTabButton: NSControl, NSTextFieldDelegate {
         self.renderedIcon = icon
         self.iconSymbolImage = icon?.symbolImage()
         self.progress = progress
+        self.fullDisplayTitle = pane.displayTitle
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
         topBorderLayer.zPosition = 1
         layer?.addSublayer(topBorderLayer)
         identifier = NSUserInterfaceItemIdentifier("pane-tab-\(pane.id.rawValue)")
-        setAccessibilityLabel(icon.map { "\($0.accessibilityLabel), \(pane.displayTitle)" } ?? pane.displayTitle)
-        toolTip = pane.displayTitle
+        setAccessibilityLabel(icon.map { "\($0.accessibilityLabel), \(fullDisplayTitle)" } ?? fullDisplayTitle)
+        toolTip = fullDisplayTitle
         setContentHuggingPriority(.defaultLow, for: .horizontal)
-        setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
 
         progressOrb.identifier = NSUserInterfaceItemIdentifier("pane-tab-progress-\(pane.id.rawValue)")
         progressOrb.configure(progress: progress, theme: theme)
@@ -6439,9 +6447,9 @@ private final class PaneTabButton: NSControl, NSTextFieldDelegate {
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.font = .systemFont(ofSize: 11, weight: active ? .semibold : .medium)
-         titleLabel.lineBreakMode = .byTruncatingTail
-        titleLabel.stringValue = pane.displayTitle
-        titleLabel.toolTip = pane.displayTitle
+         titleLabel.lineBreakMode = .byClipping
+        titleLabel.stringValue = PaneTabTitleFormatter.displayTitle(fullDisplayTitle)
+        titleLabel.toolTip = fullDisplayTitle
          titleLabel.textColor = active ? theme.shell.textPrimary : theme.shell.textSecondary
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         addSubview(titleLabel)
@@ -6449,7 +6457,7 @@ private final class PaneTabButton: NSControl, NSTextFieldDelegate {
         if showsClose {
             closeButton.configure(
                 symbolName: "xmark",
-                accessibilityLabel: "Close \(pane.displayTitle)",
+                accessibilityLabel: "Close \(fullDisplayTitle)",
                 active: false,
                 theme: theme,
                 compact: true
@@ -6640,7 +6648,7 @@ private final class PaneTabButton: NSControl, NSTextFieldDelegate {
     func beginInlineRename() {
         guard !isRenaming else { return }
         isRenaming = true
-        originalTitle = titleLabel.stringValue
+        originalTitle = fullDisplayTitle
         previousFirstResponder = window?.firstResponder
         titleLabel.isEditable = true
         titleLabel.isSelectable = true

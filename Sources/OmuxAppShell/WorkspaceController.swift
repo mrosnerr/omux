@@ -1843,10 +1843,10 @@ public final class WorkspaceController: @unchecked Sendable {
         lock.lock()
         var updatedWorkspace: Workspace?
         for workspaceIndex in workspaces.indices {
-            guard let existingAlias = workspaces[workspaceIndex].panes.first(where: { $0.id == paneID })?.userAlias else {
+            guard let pane = workspaces[workspaceIndex].panes.first(where: { $0.id == paneID }) else {
                 continue
             }
-            if existingAlias == trimmed {
+            if pane.userAlias == trimmed {
                 lock.unlock()
                 return nil
             }
