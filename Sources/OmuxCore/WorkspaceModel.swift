@@ -218,6 +218,7 @@ public struct Pane: Equatable, Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id
         case title
+        case userAlias
         case content
         case session
         case terminalState
@@ -225,17 +226,23 @@ public struct Pane: Equatable, Codable, Sendable {
 
     public let id: PaneID
     public var title: String
+    /// A user-set alias that takes display precedence over `title` in the pane tab strip.
+    /// When set, programmatic title updates (OSC sequences, agents, shell integrations) continue
+    /// writing to `title` but do not change what is displayed in the tab.
+    public var userAlias: String?
     public var content: PaneContent
     public var terminalState: PaneTerminalState
 
     public init(
         id: PaneID = PaneID(),
         title: String,
+        userAlias: String? = nil,
         session: SessionDescriptor,
         terminalState: PaneTerminalState = PaneTerminalState()
     ) {
         self.id = id
         self.title = title
+        self.userAlias = userAlias
         self.content = .terminal(session)
         self.terminalState = terminalState
     }
@@ -243,11 +250,13 @@ public struct Pane: Equatable, Codable, Sendable {
     public init(
         id: PaneID = PaneID(),
         title: String,
+        userAlias: String? = nil,
         extensionPane: ExtensionPaneDescriptor,
         terminalState: PaneTerminalState = PaneTerminalState()
     ) {
         self.id = id
         self.title = title
+        self.userAlias = userAlias
         self.content = .extensionPane(extensionPane)
         self.terminalState = terminalState
     }
@@ -256,6 +265,7 @@ public struct Pane: Equatable, Codable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.id = try container.decode(PaneID.self, forKey: .id)
         self.title = try container.decode(String.self, forKey: .title)
+        self.userAlias = try container.decodeIfPresent(String.self, forKey: .userAlias)
         self.terminalState = try container.decodeIfPresent(PaneTerminalState.self, forKey: .terminalState) ?? PaneTerminalState()
 
         if let content = try container.decodeIfPresent(PaneContent.self, forKey: .content) {
@@ -269,9 +279,19 @@ public struct Pane: Equatable, Codable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(title, forKey: .title)
+        try container.encodeIfPresent(userAlias, forKey: .userAlias)
         try container.encode(content, forKey: .content)
         try container.encodeIfPresent(terminalSession, forKey: .session)
         try container.encode(terminalState, forKey: .terminalState)
+    }
+
+    /// The name displayed in the pane tab strip. Prefers `userAlias` over `title`.
+    public var displayTitle: String {
+        userAlias ?? title
+    }
+
+    public var hasUserAlias: Bool {
+        userAlias != nil
     }
 
     public var isTerminal: Bool {

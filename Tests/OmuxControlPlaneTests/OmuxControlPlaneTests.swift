@@ -394,6 +394,48 @@ final class OmuxControlPlaneTests: XCTestCase {
         releaseStream.signal()
         wait(for: [streamFinished], timeout: 2)
     }
+
+    func testPaneAliasMethodsRoundTrip() throws {
+        let socketPath = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString)
+            .appending(path: "pane-alias.sock")
+            .path(percentEncoded: false)
+
+        let paneIDValue = UUID().uuidString
+        let aliasValue = "my-alias"
+
+        let server = LocalControlServer(socketPath: socketPath)
+        try server.start { request in
+            if request.method == ControlMethod.getPaneAlias.rawValue {
+                return JSONRPCResponse(id: request.id, result: .string(aliasValue))
+            }
+            return JSONRPCResponse(id: request.id, result: .object(["method": .string(request.method)]))
+        }
+        defer { server.stop() }
+
+        let client = OmuxControlClient(socketPath: socketPath)
+
+        // set alias — server echoes method name
+        let setResponse = try client.request(
+            method: .setPaneAlias,
+            params: .object(["paneID": .string(paneIDValue), "alias": .string(aliasValue)])
+        )
+        XCTAssertEqual(setResponse.result?.objectValue?["method"], .string(ControlMethod.setPaneAlias.rawValue))
+
+        // get alias — server returns the alias string
+        let getResponse = try client.request(
+            method: .getPaneAlias,
+            params: .object(["paneID": .string(paneIDValue)])
+        )
+        XCTAssertEqual(getResponse.result, .string(aliasValue))
+
+        // clear alias — server echoes method name
+        let clearResponse = try client.request(
+            method: .clearPaneAlias,
+            params: .object(["paneID": .string(paneIDValue)])
+        )
+        XCTAssertEqual(clearResponse.result?.objectValue?["method"], .string(ControlMethod.clearPaneAlias.rawValue))
+    }
 }
 
 private extension RPCValue {
