@@ -201,6 +201,7 @@ public struct VaultConfiguration: Equatable, Sendable {
     public var enabled: Bool
     public var previewEnabled: Bool
     public var indexOnLaunch: Bool
+    public var collapsedToggleVisible: Bool
     public var includedAgents: [VaultAgentKind]
     public var excludedPaths: [String]
     public var maxPreviewBytes: Int
@@ -212,6 +213,7 @@ public struct VaultConfiguration: Equatable, Sendable {
         enabled: Bool = true,
         previewEnabled: Bool = true,
         indexOnLaunch: Bool = true,
+        collapsedToggleVisible: Bool = true,
         includedAgents: [VaultAgentKind] = Self.defaultIncludedAgents,
         excludedPaths: [String] = [],
         maxPreviewBytes: Int = 1_048_576,
@@ -222,6 +224,7 @@ public struct VaultConfiguration: Equatable, Sendable {
         self.enabled = enabled
         self.previewEnabled = previewEnabled
         self.indexOnLaunch = indexOnLaunch
+        self.collapsedToggleVisible = collapsedToggleVisible
         self.includedAgents = includedAgents
         self.excludedPaths = excludedPaths
         self.maxPreviewBytes = maxPreviewBytes
@@ -254,6 +257,7 @@ public struct VaultConfiguration: Equatable, Sendable {
             enabled: config.enabled,
             previewEnabled: config.previewEnabled,
             indexOnLaunch: config.indexOnLaunch,
+            collapsedToggleVisible: config.collapsedToggleVisible,
             includedAgents: included,
             excludedPaths: config.excludedPaths,
             maxPreviewBytes: config.maxPreviewBytes,

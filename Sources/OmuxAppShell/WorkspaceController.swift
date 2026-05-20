@@ -1800,6 +1800,17 @@ public final class WorkspaceController: @unchecked Sendable {
     }
 
     @discardableResult
+    public func pane(_ paneID: PaneID) -> Pane? {
+        lock.lock()
+        defer { lock.unlock() }
+        for workspace in workspaces {
+            if let pane = workspace.panes.first(where: { $0.id == paneID }) {
+                return pane
+            }
+        }
+        return nil
+    }
+
     public func renamePaneTab(_ paneID: PaneID, to proposedName: String) -> Workspace? {
         let trimmedName = proposedName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedName.isEmpty == false else {
@@ -1817,6 +1828,77 @@ public final class WorkspaceController: @unchecked Sendable {
         lock.unlock()
 
         if let updatedWorkspace {
+            onChange?(updatedWorkspace)
+        }
+        return updatedWorkspace
+    }
+
+    @discardableResult
+    public func setPaneAlias(_ paneID: PaneID, to alias: String) throws -> Workspace? {
+        let trimmed = alias.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return try clearPaneAlias(paneID)
+        }
+
+        lock.lock()
+        var updatedWorkspace: Workspace?
+        for workspaceIndex in workspaces.indices {
+            guard let pane = workspaces[workspaceIndex].panes.first(where: { $0.id == paneID }) else {
+                continue
+            }
+            if pane.userAlias == trimmed {
+                lock.unlock()
+                return nil
+            }
+            if workspaces[workspaceIndex].updatePane(paneID, transform: { $0.userAlias = trimmed }) {
+                updatedWorkspace = workspaces[workspaceIndex]
+                break
+            }
+        }
+        lock.unlock()
+
+        if let updatedWorkspace {
+            try hookRunner.emit(
+                HookInvocation(
+                    category: .lifecycle,
+                    name: "pane-alias-set",
+                    workspaceID: updatedWorkspace.id,
+                    payload: .object(["paneID": .string(paneID.rawValue), "alias": .string(trimmed)])
+                )
+            )
+            onChange?(updatedWorkspace)
+        }
+        return updatedWorkspace
+    }
+
+    @discardableResult
+    public func clearPaneAlias(_ paneID: PaneID) throws -> Workspace? {
+        lock.lock()
+        var updatedWorkspace: Workspace?
+        for workspaceIndex in workspaces.indices {
+            guard let pane = workspaces[workspaceIndex].panes.first(where: { $0.id == paneID }) else {
+                continue
+            }
+            if pane.userAlias == nil {
+                lock.unlock()
+                return nil
+            }
+            if workspaces[workspaceIndex].updatePane(paneID, transform: { $0.userAlias = nil }) {
+                updatedWorkspace = workspaces[workspaceIndex]
+                break
+            }
+        }
+        lock.unlock()
+
+        if let updatedWorkspace {
+            try hookRunner.emit(
+                HookInvocation(
+                    category: .lifecycle,
+                    name: "pane-alias-cleared",
+                    workspaceID: updatedWorkspace.id,
+                    payload: .object(["paneID": .string(paneID.rawValue)])
+                )
+            )
             onChange?(updatedWorkspace)
         }
         return updatedWorkspace
@@ -3064,13 +3146,17 @@ public final class WorkspaceController: @unchecked Sendable {
                 }
 
                 if shouldApplyTerminalDisplayTitleUpdateLocked(for: event.paneID, at: Date()) {
-                    deliveredTerminalDisplayTitleByPane[event.paneID] = displayTitle
-                    lastTerminalDisplayTitleUpdateByPane[event.paneID] = Date()
-                    if Self.shouldPromoteTerminalDisplayTitleToPaneTitle(displayTitle),
-                       pane.title != displayTitle {
-                        pane.title = displayTitle
+                    // When a user alias is set, store the title internally but do not
+                    // promote it to pane.title (which drives the tab display).
+                    if pane.userAlias == nil,
+                       Self.shouldPromoteTerminalDisplayTitleToPaneTitle(displayTitle) {
+                        if pane.title != displayTitle {
+                            pane.title = displayTitle
+                        }
+                        deliveredTerminalDisplayTitleByPane[event.paneID] = displayTitle
+                        lastTerminalDisplayTitleUpdateByPane[event.paneID] = Date()
+                        shouldUpdateWorkspace = true
                     }
-                    shouldUpdateWorkspace = true
                 } else {
                     pendingTerminalDisplayTitlePaneIDs.insert(event.paneID)
                     shouldScheduleTrailingTitleUpdate = true
@@ -3259,12 +3345,13 @@ public final class WorkspaceController: @unchecked Sendable {
                 continue
             }
 
-            deliveredTerminalDisplayTitleByPane[paneID] = displayTitle
             lastTerminalDisplayTitleUpdateByPane[paneID] = now
             _ = workspaces[location.workspaceIndex].updatePane(paneID) { pane in
-                if Self.shouldPromoteTerminalDisplayTitleToPaneTitle(displayTitle),
+                if pane.userAlias == nil,
+                   Self.shouldPromoteTerminalDisplayTitleToPaneTitle(displayTitle),
                    pane.title != displayTitle {
                     pane.title = displayTitle
+                    deliveredTerminalDisplayTitleByPane[paneID] = displayTitle
                 }
             }
             updatedWorkspaceIDs.insert(workspaces[location.workspaceIndex].id)

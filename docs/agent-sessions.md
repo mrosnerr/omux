@@ -145,6 +145,7 @@ Agent Sessions is enabled by default. A minimal config looks like:
 enabled = true
 preview_enabled = true
 index_on_launch = true
+collapsed_toggle_visible = true
 included_agents = ["copilot", "codex", "gemini"]
 
 [agent-sessions.agents.copilot]
