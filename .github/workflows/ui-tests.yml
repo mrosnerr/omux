@@ -1,0 +1,90 @@
+name: UI Tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  ui-test:
+    runs-on: macos-15
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
+
+      - name: Detect UI-relevant path changes
+        id: paths
+        uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3.0.3
+        with:
+          filters: |
+            ui:
+              - 'Sources/OpenMUXApp/**'
+              - 'Sources/OmuxAppShell/**'
+              - 'Tests/OmuxUITests/**'
+              - '.github/**'
+              - 'Makefile'
+              - 'project.yml'
+              - 'Package.swift'
+              - 'Scripts/**'
+              - 'tools/**'
+
+      - name: Cache Ghostty build state
+        if: steps.paths.outputs.ui == 'true'
+        id: ghostty-cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            .build/tools
+            Vendor/ghostty/macos/GhosttyKit.xcframework
+            Vendor/ghostty/macos/GhosttyKit.xcframework.omux-build-stamp
+            Vendor/ghostty/.zig-cache
+            Vendor/ghostty/zig-out
+          key: ${{ runner.os }}-ghostty-${{ hashFiles('Vendor/ghostty/PINNED_REF', 'Scripts/build-ghostty.sh') }}
+
+      - name: Cache Homebrew downloads
+        if: steps.paths.outputs.ui == 'true'
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/Library/Caches/Homebrew
+          key: ${{ runner.os }}-brew-zig15
+          restore-keys: |
+            ${{ runner.os }}-brew-
+
+      - name: Ensure Metal tools are available
+        if: steps.paths.outputs.ui == 'true' && steps.ghostty-cache.outputs.cache-hit != 'true'
+        run: |
+          if ! xcrun -f metal >/dev/null 2>&1; then
+            sudo xcodebuild -downloadComponent MetalToolchain
+          fi
+
+      - name: Install Zig 0.15
+        if: steps.paths.outputs.ui == 'true' && steps.ghostty-cache.outputs.cache-hit != 'true'
+        run: brew install zig@0.15
+
+      - name: Build vendored Ghostty runtime
+        if: steps.paths.outputs.ui == 'true'
+        run: make setup
+
+      - name: Install xcodegen
+        if: steps.paths.outputs.ui == 'true'
+        run: brew install xcodegen
+
+      - name: Regenerate Xcode project
+        if: steps.paths.outputs.ui == 'true'
+        run: make generate-xcodeproj
+
+      - name: Run UI test suite
+        if: steps.paths.outputs.ui == 'true'
+        run: make ui-test
+
+      - name: Upload UI test results on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ui-test-results
+          path: .build/ui-test-results.xcresult
