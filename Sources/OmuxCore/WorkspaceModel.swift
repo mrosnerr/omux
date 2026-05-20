@@ -543,6 +543,17 @@ public struct PaneStack: Equatable, Codable, Sendable {
         }
     }
 
+    public mutating func replacePane(_ oldPaneID: PaneID, with newPane: Pane) -> Bool {
+        guard let index = panes.firstIndex(where: { $0.id == oldPaneID }) else {
+            return false
+        }
+        panes[index] = newPane
+        if focusedPaneID == oldPaneID {
+            focusedPaneID = newPane.id
+        }
+        return true
+    }
+
     public mutating func closePane(id paneID: PaneID) -> Pane? {
         guard panes.count > 1,
               let index = panes.firstIndex(where: { $0.id == paneID })
@@ -954,6 +965,26 @@ public indirect enum TabLayoutNode: Equatable, Codable, Sendable {
                 }
             }
             return nil
+        }
+    }
+
+    @discardableResult
+    public mutating func replacePane(_ oldPaneID: PaneID, with newPane: Pane) -> Bool {
+        switch self {
+        case .paneStack(var paneStack):
+            guard paneStack.replacePane(oldPaneID, with: newPane) else {
+                return false
+            }
+            self = .paneStack(paneStack)
+            return true
+        case .split(let axis, let proportions, var children):
+            for index in children.indices {
+                if children[index].replacePane(oldPaneID, with: newPane) {
+                    self = Self.makeSplit(axis: axis, proportions: proportions, children: children)
+                    return true
+                }
+            }
+            return false
         }
     }
 
@@ -1560,6 +1591,17 @@ public struct Tab: Equatable, Codable, Sendable {
             focusedPaneID = updatedStack.focusedPaneID
         }
         return removedPane
+    }
+
+    @discardableResult
+    public mutating func replacePane(_ oldPaneID: PaneID, with newPane: Pane) -> Bool {
+        guard rootLayout.replacePane(oldPaneID, with: newPane) else {
+            return false
+        }
+        if focusedPaneID == oldPaneID {
+            focusedPaneID = newPane.id
+        }
+        return true
     }
 
     public mutating func removePane(_ paneID: PaneID) -> Pane? {

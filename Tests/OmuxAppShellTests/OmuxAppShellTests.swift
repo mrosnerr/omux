@@ -6739,8 +6739,8 @@ final class OmuxAppShellTests: XCTestCase {
         XCTAssertEqual(controller.allWorkspaces().flatMap(\.panes).count, 2,
                        "workspace should have two panes after split")
 
-        // Simulate libghostty calling close_surface_cb after child exits
-        runtime.simulateSurfaceClose(runtimeSurfaceID: runtimeSurfaceID, processAlive: false)
+        // Simulate the child exiting cleanly (exit code 0).
+        runtime.emit(.childExited(exitCode: 0, elapsedMilliseconds: 500), on: runtimeSurfaceID)
 
         let remainingPanes = controller.allWorkspaces().flatMap(\.panes)
         XCTAssertEqual(remainingPanes.count, 1,
@@ -6749,7 +6749,7 @@ final class OmuxAppShellTests: XCTestCase {
                        "the surviving pane should be the sibling")
     }
 
-    func testLastPaneIsNotRemovedWhenChildProcessExits() throws {
+    func testLastPaneSpawnsFreshShellWhenChildProcessExits() throws {
         let runtime = ActionEmittingGhosttyRuntime()
         let bridge = GhosttyTerminalBridge(runtime: runtime)
         let controller = WorkspaceController(
@@ -6757,15 +6757,71 @@ final class OmuxAppShellTests: XCTestCase {
             hookRunner: ExternalHookRunner()
         )
         let workspace = try controller.openWorkspace(at: "/tmp")
-        let pane = workspace.focusedPane!
+        let originalPane = workspace.focusedPane!
 
-        let runtimeSurfaceID = bridge.surface(for: pane.id)!.runtimeSurfaceID
+        let runtimeSurfaceID = bridge.surface(for: originalPane.id)!.runtimeSurfaceID
 
-        // Simulate exit on the only pane — it should stay because it's the last one.
+        // Simulate clean exit on the only pane — the workspace should
+        // stay with a fresh shell replacing the dead pane.
+        runtime.emit(.childExited(exitCode: 0, elapsedMilliseconds: 500), on: runtimeSurfaceID)
+
+        let panes = controller.allWorkspaces().flatMap(\.panes)
+        XCTAssertEqual(panes.count, 1,
+                       "workspace should still have one pane")
+        XCTAssertNotEqual(panes.first?.id, originalPane.id,
+                          "the pane should be a fresh replacement, not the original")
+    }
+
+    func testPaneRemainsAfterNonZeroExitCode() throws {
+        let runtime = ActionEmittingGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let controller = WorkspaceController(
+            bridge: bridge,
+            hookRunner: ExternalHookRunner()
+        )
+        let workspace = try controller.openWorkspace(at: "/tmp")
+        let originalPane = workspace.focusedPane!
+
+        let runtimeSurfaceID = bridge.surface(for: originalPane.id)!.runtimeSurfaceID
+
+        // Simulate a non-zero exit — pane should stay as-is (no auto-close,
+        // no replacement) so the user can inspect the failure.
+        runtime.emit(.childExited(exitCode: 1, elapsedMilliseconds: 500), on: runtimeSurfaceID)
+
+        let panes = controller.allWorkspaces().flatMap(\.panes)
+        XCTAssertEqual(panes.count, 1,
+                       "workspace should still have one pane")
+        XCTAssertEqual(panes.first?.id, originalPane.id,
+                       "the original pane should remain after non-zero exit")
+    }
+
+    func testSurfaceCloseCallbackClosesPane() throws {
+        let runtime = ActionEmittingGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let controller = WorkspaceController(
+            bridge: bridge,
+            hookRunner: ExternalHookRunner()
+        )
+        let workspace = try controller.openWorkspace(at: "/tmp")
+        let firstPane = workspace.focusedPane!
+
+        // Add a second pane so close has a sibling to fall back to.
+        let splitWorkspace = try XCTUnwrap(controller.splitFocusedPane(axis: .columns))
+        let secondPane = try XCTUnwrap(splitWorkspace.focusedPane)
+
+        let runtimeSurfaceID = bridge.surface(for: firstPane.id)!.runtimeSurfaceID
+
+        XCTAssertEqual(controller.allWorkspaces().flatMap(\.panes).count, 2,
+                       "workspace should have two panes after split")
+
+        // Simulate libghostty calling close_surface_cb directly (process dead).
         runtime.simulateSurfaceClose(runtimeSurfaceID: runtimeSurfaceID, processAlive: false)
 
-        XCTAssertEqual(controller.allWorkspaces().flatMap(\.panes).count, 1,
-                       "last pane in workspace should not be removed")
+        let remainingPanes = controller.allWorkspaces().flatMap(\.panes)
+        XCTAssertEqual(remainingPanes.count, 1,
+                       "exited pane should be removed via close_surface_cb")
+        XCTAssertEqual(remainingPanes.first?.id, secondPane.id,
+                       "the surviving pane should be the sibling")
     }
 
     private func runGit(_ arguments: [String]) throws {

@@ -2955,7 +2955,62 @@ public final class WorkspaceController: @unchecked Sendable {
         // automatically. If the process is still alive, this is a
         // user-initiated close that may need confirmation — not yet handled.
         guard !processAlive else { return }
-        _ = try? closePane(paneID: paneID)
+
+        // closePane removes the pane when siblings exist. When it returns
+        // nil the pane was the last one in its workspace — spawn a fresh
+        // shell so the workspace stays live.
+        if let _ = try? closePane(paneID: paneID) {
+            return
+        }
+        replaceDeadPane(paneID: paneID)
+    }
+
+    private func replaceDeadPane(paneID: PaneID) {
+        lock.lock()
+        guard let workspaceIndex = workspaces.firstIndex(where: {
+            $0.panes.contains(where: { $0.id == paneID })
+        }) else {
+            lock.unlock()
+            return
+        }
+
+        // Use the exited pane's last working directory, falling back to
+        // the workspace root so the new shell starts somewhere sensible.
+        let workingDirectory = workspaces[workspaceIndex].panes
+            .first(where: { $0.id == paneID })?
+            .session.workingDirectory
+            ?? workspaces[workspaceIndex].rootPath
+        let workspaceID = workspaces[workspaceIndex].id
+        lock.unlock()
+
+        // Tear down the dead surface, then create a fresh pane in its
+        // place by opening a new tab in the same workspace.
+        try? bridge.teardown(paneID: paneID)
+
+        let paneTitle = Self.basePaneTitle(for: workingDirectory)
+        let freshPane = makePane(title: paneTitle, workingDirectory: workingDirectory)
+
+        lock.lock()
+        // Replace the dead pane in the tab that still contains it.
+        // If the workspace or tab disappeared (concurrent close), bail
+        // out — the freshPane was never attached so nothing leaks.
+        var didReplace = false
+        if let workspaceIndex = workspaces.firstIndex(where: { $0.id == workspaceID }),
+           let tabIndex = workspaces[workspaceIndex].tabs.firstIndex(where: {
+               $0.panes.contains(where: { $0.id == paneID })
+           }) {
+            didReplace = workspaces[workspaceIndex].tabs[tabIndex].replacePane(paneID, with: freshPane)
+        }
+        let updatedWorkspace = workspaces.first(where: { $0.id == workspaceID })
+        lock.unlock()
+
+        guard didReplace, let updatedWorkspace else { return }
+
+        _ = try? bridge.createSurface(for: freshPane)
+        _ = try? bridge.attach(session: freshPane.session, to: freshPane)
+
+        scheduleTerminalStateChangeUpdate(for: updatedWorkspace.id)
+        onChange?(updatedWorkspace)
     }
 
     private func emitInputSent(
@@ -3010,6 +3065,7 @@ public final class WorkspaceController: @unchecked Sendable {
         var updatedWorkspace: Workspace?
         var context: ControlPlaneTerminalContext?
         var shouldScheduleTrailingTitleUpdate = false
+        var shouldAutoClose: PaneID?
 
         lock.lock()
         guard let location = paneLocationLocked(for: event.paneID),
@@ -3148,6 +3204,12 @@ public final class WorkspaceController: @unchecked Sendable {
             if didChange {
                 updatedWorkspace = workspaces[workspaceIndex]
             }
+            // Auto-close the pane on clean exit. On macOS libghostty
+            // treats fast exits as abnormal (even exit code 0) so the
+            // close_surface_cb may never fire; handle it here instead.
+            if exitCode == 0 {
+                shouldAutoClose = event.paneID
+            }
         case .rendererHealthChanged(let isHealthy):
             var didChange = false
             _ = workspaces[workspaceIndex].updatePane(event.paneID) { pane in
@@ -3169,6 +3231,9 @@ public final class WorkspaceController: @unchecked Sendable {
         }
         if let updatedWorkspace {
             scheduleTerminalStateChangeUpdate(for: updatedWorkspace.id)
+        }
+        if let paneID = shouldAutoClose {
+            handleSurfaceClosed(paneID: paneID, processAlive: false)
         }
         return context
     }
