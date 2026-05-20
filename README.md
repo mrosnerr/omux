@@ -14,7 +14,8 @@
 
 <p align="center">
   <span>
-    <a href="https://github.com/finger-gun/omux/actions/workflows/ci.yml"><img src="https://github.com/finger-gun/omux/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status" /></a>
+    <a href="https://github.com/finger-gun/omux/actions/workflows/ci.yml"><img src="https://github.com/finger-gun/omux/actions/workflows/ci.yml/badge.svg?branch=main" alt="Unit Tests Status" /></a>
+    <a href="https://github.com/finger-gun/omux/actions/workflows/ui-tests.yml"><img src="https://github.com/finger-gun/omux/actions/workflows/ui-tests.yml/badge.svg" alt="UI Test Status" /></a>
     <img src="https://img.shields.io/badge/Status-Beta-F59E0B?style=flat-square" alt="Beta status" />
     <img src="https://img.shields.io/badge/Platform-macOS-111827?style=flat-square" alt="macOS platform" />
     <img src="https://img.shields.io/badge/AI-Friendly-7C3AED?style=flat-square" alt="AI-friendly" />
