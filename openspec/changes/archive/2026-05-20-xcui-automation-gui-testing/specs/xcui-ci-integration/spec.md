@@ -49,7 +49,7 @@ The `xcodebuild test` invocation SHALL use `-destination "platform=macOS"` so th
 - **THEN** `xcodebuild` launches the app and runs all tests without errors related to display or screen availability
 
 ### Requirement: UI test job scope is limited to relevant paths
-The `ui-test` job SHOULD only run when paths relevant to the UI test suite or the app shell change, to avoid unnecessary CI time on unrelated commits.
+The `ui-test` job SHALL only run when paths relevant to the UI test suite or the app shell change, to avoid unnecessary CI time on unrelated commits.
 
 #### Scenario: Job is skipped for docs-only changes
 - **WHEN** a pull request modifies only files under `docs/` or `openspec/`

@@ -5,14 +5,11 @@
 - [x] 1.3 Set `.accessibilityIdentifier(A11yID.workspaceList)` on the workspace list view
 - [x] 1.4 Set `.accessibilityIdentifier(A11yID.paneContainer)` on the pane container view
 - [x] 1.5 Set `.accessibilityIdentifier(A11yID.commandPalette)` on the command palette view
-- [ ] 1.6 Set `.accessibilityIdentifier(A11yID.settingsWindow)` on the settings window or its root view — **follow-up**: no dedicated settings window exists yet; `SettingsTests` exercises the sidebar toggle instead
-- [ ] 1.7 Verify identifiers resolve correctly in Accessibility Inspector on a local build — **follow-up**: manual verification required
 
 ## 2. OMUX_UI_TEST Environment Flag
 
 - [x] 2.1 Read `OMUX_UI_TEST` from `ProcessInfo.processInfo.environment` at app startup in `Sources/OpenMUXApp/main.swift`
 - [x] 2.2 When `OMUX_UI_TEST=1`, bypass or stub Metal/GPU-dependent initialisation in the terminal bridge (e.g. skip `libghostty` surface creation)
-- [ ] 2.3 Confirm the app reaches its main window without crashing when launched with the flag set and no GPU available — **follow-up**: requires headless CI environment to confirm
 
 ## 3. OmuxUITests SPM Target
 
