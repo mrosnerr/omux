@@ -15,8 +15,10 @@ development toolchain.
 - OpenMUX must be running (dev build via `make app` / `swift run OpenMUXApp`,
   or a packaged `.app`).
 - `lldb` (ships with Xcode Command Line Tools).
-- SIP must allow debugger attachment (default on dev machines; disable
-  `com.apple.security.cs.debugger` restrictions if needed).
+- Debugger attachment requires your app to have the
+  `com.apple.security.get-task-allow` entitlement (added automatically by Xcode
+  for dev builds). If using Hardened Runtime, also add
+  `com.apple.security.cs.debugger` to your signing entitlements.
 
 ## Steps
 
@@ -68,7 +70,7 @@ lldb -p <PID> \
 
 Each line in the dump follows this format:
 
-```
+```text
 [FLAGS] h=--- v=--- ClassName 0xADDRESS "title" f=(x,y,w,h) b=(-) => <LayerClass>
 ```
 
