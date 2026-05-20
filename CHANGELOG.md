@@ -3,6 +3,24 @@
 OpenMUX release notes are committed here before tagging a release. Use `Scripts/check-changes-since-release.sh` to inspect changes since the latest `v*` tag, then use `Scripts/prepare-release.sh <version>` with a reviewed changelog body to prepare the next release.
 
 
+
+## 0.19.0
+
+### Added
+
+- Added `workspace.isolate_shell_history`, enabled by default, so OpenMUX-launched shell sessions can keep command history isolated per workspace while panes and pane tabs in the same workspace continue sharing that workspace history.
+- Added support for dragging URLs and plain text into terminal panes, alongside existing Finder file drops.
+- Added the `inspect-window` agent skill for debugging a running OpenMUX window's AppKit view hierarchy.
+
+### Changed
+
+- Changed the release installer to link the bundled `omux` CLI at `~/.local/bin/omux` by default, and updated install documentation to match.
+- Updated user and contributor docs for shell-history isolation, drag-and-drop behavior, Agent Sessions, AI Status, installer usage, and UI test coverage.
+
+### Fixed
+
+- Fixed the shell overlay so terminal panes keep receiving clicks and drag-and-drop events when no command palette or modal is open.
+
 ## 0.18.0
 
 ### Added
