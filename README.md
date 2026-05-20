@@ -43,7 +43,7 @@
 
 ## What OpenMUX is
 
-OpenMUX is a native macOS terminal workspace. It gives you workspaces, tabs, split panes, pane-local tab stacks, persistent shell sessions, themes, a local CLI, hooks, plugins, and extension panes.
+OpenMUX is a native macOS terminal workspace. It gives you workspaces, tabs, split panes, pane-local tab stacks, persistent shell sessions, themes, a local CLI, hooks, bundled plugins, registry-installed plugins, and extension panes.
 
 The goal is simple: keep the terminal powerful, inspectable, and open to your workflow.
 
@@ -53,11 +53,14 @@ OpenMUX is a beta, but the core workflow is usable:
 
 - native AppKit shell with a terminal-first layout
 - workspaces, top-level tabs, split panes, and pane-local tabs
-- persistent shell sessions with direct typing, paste, resize, command injection, and bounded scrollback restore
+- persistent shell sessions with direct typing, paste, drag-and-drop text/URLs/files, resize, command injection, isolated shell history, and bounded scrollback restore
 - local `omux` CLI and JSON-RPC control plane
 - external hook system, official hook registry, and `omux events`
 - fuzzy-search theme picker and token-based themes
-- plugin command discovery, extension panes, native menu contributions, and official plugin registry
+- command palette, focused-pane find, and keyboard-first pane/workspace actions
+- Agent Sessions for local coding-agent history, plus AI Status pane indicators for supported tools
+- Markdown Preview, plugin command discovery, extension panes, floating pane modals, native menu contributions, and the official plugin registry
+- XCUIAutomation coverage for the native app shell in CI
 - explicit keyboard-correctness work for ISO layouts, Option behavior, dead keys, compose input, and IME-sensitive flows
 
 ## Start here
@@ -67,6 +70,8 @@ Quick install from the latest GitHub Release:
 ```bash
 curl -fsSL https://github.com/finger-gun/omux/releases/latest/download/openmux-install.sh | bash
 ```
+
+This installs `OpenMUX.app` and links the bundled `omux` CLI into the first suitable directory on your `PATH`, or `~/.local/bin` if no preferred path is available.
 
 User docs:
 
@@ -86,7 +91,7 @@ Contributor docs:
 
 ## Common user commands
 
-Install the bundled CLI from the app:
+If you installed the app without the CLI, link the bundled command from the app:
 
 ```bash
 /Applications/OpenMUX.app/Contents/MacOS/omux install-cli
@@ -101,6 +106,7 @@ omux list --full
 omux split right
 omux run --focused -- "git status"
 omux theme
+omux agent-sessions open
 omux plugins
 omux events
 ```
@@ -133,13 +139,14 @@ User-owned files live under `~/.omux/`:
 | `~/.omux/hooks/` | User hook handlers. |
 | `~/.omux/plugins/` | External plugin commands. |
 | `~/.omux/installed/` | Receipts for registry-installed hooks and plugins. |
+| `~/.omux/agent-sessions.sqlite` | Local Agent Sessions index. |
 | `~/.omux/generated/ghostty/` | OpenMUX-managed generated terminal config. |
 
 ## Plugins
 
 OpenMUX has two plugin and automation surfaces:
 
-1. Bundled plugins can be toggled with `omux plugins`.
+1. Bundled plugins, such as Markdown Preview and AI Status, can be toggled with `omux plugins`.
 2. User plugins are executable commands discovered from `~/.omux/plugins/`.
 
 Plugins can create extension panes with `omux extension-pane`, listen through hooks, call back into the public CLI, and contribute native menu items. Hooks are executable event handlers under `~/.omux/hooks/`.

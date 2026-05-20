@@ -7,26 +7,29 @@ VERSION="@RELEASE_VERSION@"
 APP_ARCHIVE_NAME="OpenMUX-$VERSION-macos-unsigned.zip"
 CHECKSUM_FILE_NAME="checksums.txt"
 ASSUME_YES=0
-INSTALL_CLI="${OPENMUX_INSTALL_CLI:-0}"
+INSTALL_CLI="${OPENMUX_INSTALL_CLI:-1}"
 TARGET_PATH="${OPENMUX_INSTALL_TARGET:-}"
 SCRIPT_NAME="openmux-install.sh"
 
 usage() {
   cat <<EOF
-usage: $SCRIPT_NAME [--yes] [--install-cli] [--target /path/to/OpenMUX.app]
+usage: $SCRIPT_NAME [--yes] [--install-cli|--no-install-cli] [--target /path/to/OpenMUX.app]
 
 Installs OpenMUX $VERSION from the matching GitHub Release assets.
 
 Options:
   --yes, -y       Do not prompt before installing.
-  --install-cli   Run the bundled 'omux install-cli' step after installing the app.
+  --install-cli   Run the bundled 'omux install-cli' step after installing the app. This is the default.
+  --no-install-cli
+                  Install only the app bundle.
   --target PATH   Install to an explicit OpenMUX.app target path.
   --help, -h      Show this help.
 
 Environment overrides:
   OPENMUX_RELEASE_BASE_URL  Base URL for release assets.
   OPENMUX_INSTALL_TARGET    Explicit OpenMUX.app install target.
-  OPENMUX_INSTALL_CLI=1     Same as --install-cli.
+  OPENMUX_INSTALL_CLI=0     Same as --no-install-cli.
+  OPENMUX_INSTALL_CLI=1     Same as --install-cli. This is the default.
 EOF
 }
 
@@ -125,6 +128,9 @@ while [ "$#" -gt 0 ]; do
       ;;
     --install-cli)
       INSTALL_CLI=1
+      ;;
+    --no-install-cli)
+      INSTALL_CLI=0
       ;;
     --target)
       shift

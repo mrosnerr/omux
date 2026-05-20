@@ -13,9 +13,11 @@ This roadmap is directional rather than date-driven. It describes the current pr
 | Done | Configuration and themes | OpenMUX owns `~/.omux/config.toml`, token-based themes, built-in presets, user theme overrides, and generated Ghostty config output. |
 | Done | Hooks and events | External hooks, hook registries, terminal runtime events, and `omux events` provide local automation seams. |
 | Done | Plugins and extension panes | User plugin commands, plugin registries, bundled plugin registration, extension panes, menu contributions, plugin toggling, and terminal text activation exist. |
-| Done | Developer workflow | `make setup`, `make app`, `make build`, `make test`, `make verify`, and `make smoke` provide a stable local workflow. |
+| Done | Agent Sessions and AI Status | Local coding-agent session indexing, search, resume, sidebar UI, and normalized pane status indicators are available. |
+| Done | Developer workflow | `make setup`, `make app`, `make build`, `make test`, `make verify`, `make smoke`, and `make ui-test` provide a stable local workflow. |
+| Done | UI test baseline | XCUIAutomation coverage runs in CI for the native shell's launch, workspace, pane, command palette, and sidebar workflows. |
 | In progress | Runtime transcript and snapshot quality | Improve runtime-backed pane snapshots and transcript fidelity for automation and restore flows. |
-| In progress | Pane stack polish | Improve reordering, drag/drop, close behavior, and local pane-tab ergonomics. |
+| In progress | Pane stack polish | Improve large-stack ergonomics, drag/drop polish, close behavior, and local pane-tab workflows. |
 | In progress | Layout restore polish | Continue improving workspace, split, pane-stack, and session restore behavior. |
 | In progress | Terminal fidelity and TUI robustness | Keep tightening ANSI/control-sequence behavior, input correctness, and full-screen TUI workflows. |
 | In progress | Plugin capabilities | Grow the external plugin/process model while keeping the core small and terminal-first. |
@@ -28,7 +30,7 @@ This roadmap is directional rather than date-driven. It describes the current pr
 | High | Terminal fidelity | Improve transcript access, runtime snapshots, keyboard correctness, and robustness under heavy terminal applications. |
 | High | Workspace usability | Refine pane-tab interactions, focus behavior, restore flows, sidebar context, and split ergonomics. |
 | High | Automation contracts | Keep `omux`, JSON-RPC, hooks, terminal events, and plugin extension points predictable and documented. |
-| Medium | Plugins | Expand bundled plugin examples and make external plugin authoring easier without embedding runtimes into the core. |
+| Medium | Plugins | Expand bundled plugin examples, Agent Sessions/AI Status polish, and external plugin authoring without embedding runtimes into the core. |
 | Medium | Theme and config UX | Improve discovery, validation messages, contrast checks, and editing workflows on top of the token model and Settings UI. |
 | Medium | Release UX | Improve app packaging, install/update confidence, and user-facing release notes. |
 

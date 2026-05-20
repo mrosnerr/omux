@@ -57,6 +57,10 @@ isolate_shell_history = true
 enabled = true
 renderer = "builtin"
 theme = "auto"
+presentation = "pane-tab"
+
+[plugins.ai-status]
+enabled = true
 
 [registries]
 hooks = ["https://github.com/finger-gun/omux-hooks"]
@@ -299,7 +303,7 @@ resume_command = "copilot --resume {session_id}"
 | `collapsed_toggle_visible` | boolean | Shows the collapsed Agent Sessions toggle and reserves a small top-right gutter for it. Set to `false` to remove both the gutter and icon, leaving keyboard shortcuts, menu actions, and `omux agent-sessions open` as the way to reopen the sidebar. Defaults to `true`. |
 | `included_agents` | array of strings | Agents to index. Common values are `copilot`, `codex`, `gemini`, `claude`, `opencode`, `pi`, and `rovodev`. |
 | `excluded_paths` | array of strings | Paths to skip while indexing. |
-| `max_preview_bytes` | integer | Reserved maximum preview payload size. |
+| `max_preview_bytes` | integer | Maximum bytes reserved for preview-capable Agent Sessions surfaces. |
 | `sidebar_rows_per_agent` | integer | Number of rows to fetch per agent for each sidebar page. Defaults to `10`. |
 
 Per-agent tables live under `[agent-sessions.agents.<agent>]`:
@@ -325,6 +329,7 @@ The bundled Markdown Preview plugin is enabled by default. It demonstrates exten
 | `enabled` | boolean | Enables the bundled `omux markdown-preview` command and terminal-path activation. Defaults to `true`. |
 | `renderer` | `"builtin"` | Selects the built-in Markdown renderer. |
 | `theme` | `"auto"` \| `"light"` \| `"dark"` | Chooses preview colors. `auto` follows the system color scheme. |
+| `presentation` | `"pane-tab"` \| `"modal"` | Chooses whether new previews open docked in the pane layout or as a floating modal. Defaults to `"pane-tab"`. |
 
 Example:
 
@@ -333,9 +338,27 @@ Example:
 enabled = true
 renderer = "builtin"
 theme = "auto"
+presentation = "pane-tab"
 ```
 
 Run `omux markdown-preview README.md --watch` from an OpenMUX pane to open a preview beside your terminal. See [Markdown Preview plugin](./plugins/markdown-preview.md) for the full workflow.
+
+### `[plugins.ai-status]`
+
+The bundled AI Status plugin is enabled by default. It translates supported coding-agent and tool signals into OpenMUX pane status indicators without intercepting terminal input.
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `enabled` | boolean | Enables the bundled `omux ai-status` command and adapter host. Defaults to `true`. |
+
+Example:
+
+```toml
+[plugins.ai-status]
+enabled = true
+```
+
+See [AI Status](./plugins/ai-status.md) for hook setup, supported adapters, wrapper modes, and failure behavior.
 
 ## `[registries]` settings
 

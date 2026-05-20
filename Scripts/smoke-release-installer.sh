@@ -38,11 +38,18 @@ done
 
 HOME="$HOME_DIR" \
 OMUX_HOME="$OMUX_HOME_DIR" \
+PATH="$HOME_DIR/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
 OPENMUX_RELEASE_BASE_URL="file://$RELEASE_DIR" \
 sh "$INSTALLER_PATH" --yes --target "$TARGET_APP"
 
 [ -x "$TARGET_APP/Contents/MacOS/omux" ] || {
   echo "Installed bundle is missing bundled omux executable" >&2
+  exit 1
+}
+
+INSTALLED_CLI="$HOME_DIR/.local/bin/omux"
+[ -L "$INSTALLED_CLI" ] || {
+  echo "Installer did not install the omux CLI by default" >&2
   exit 1
 }
 

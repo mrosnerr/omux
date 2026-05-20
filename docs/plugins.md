@@ -290,3 +290,4 @@ The same activation is visible in `omux events` as `terminal.textActivated`. Whe
 Bundled plugins are documented separately:
 
 - [Markdown Preview](./plugins/markdown-preview.md)
+- [AI Status](./plugins/ai-status.md)

@@ -13,6 +13,15 @@ Agent Sessions is local-first. OpenMUX reads session metadata from agent-owned f
 - See active sessions and their status orb when a resumed session is running in an OpenMUX pane.
 - Delete a session from the row context menu.
 
+CLI entry points:
+
+```bash
+omux agent-sessions open
+omux agent-sessions list
+omux agent-sessions search "release notes"
+omux agent-sessions reindex
+```
+
 
 ## How sessions are loaded
 

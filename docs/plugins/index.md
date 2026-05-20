@@ -7,7 +7,7 @@ This index lists bundled plugins, highlights useful registry-hosted plugins, and
 | Plugin | Command | What it does |
 | --- | --- | --- |
 | [Markdown Preview](./markdown-preview.md) | `omux markdown-preview` | Opens GitHub-flavored Markdown previews in extension panes, with watch mode and Command-click activation for local Markdown paths. |
-| AI Status | `omux ai-status` | Bundled multi-vendor AI/tool status host. Starts with a Codex adapter and leaves future adapters behind the same command. |
+| [AI Status](./ai-status.md) | `omux ai-status` | Bundled multi-vendor AI/tool status host for Codex, Gemini, Claude, hooks, wrappers, and normalized pane status updates. |
 
 ## Managing plugins
 
@@ -41,7 +41,7 @@ OpenMUX uses `https://github.com/finger-gun/omux-plugins` by default and accepts
 Install one with:
 
 ```sh
-omux plugins install ai-status
+omux plugins install settings-ui
 ```
 
 Inspect plugin registration:

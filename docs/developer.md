@@ -26,6 +26,7 @@ Use the Makefile entrypoints first:
 make app
 make test
 make verify
+make ui-test
 ```
 
 | Command | Use it for |
@@ -36,6 +37,7 @@ make verify
 | `make test` | Run the Swift test suite. |
 | `make verify` | Run build and tests. |
 | `make smoke` | Launch and sample `OpenMUXApp` as a smoke test. |
+| `make ui-test` | Run the XCUIAutomation GUI test suite. |
 
 When changing the CLI, use SwiftPM directly:
 
@@ -59,6 +61,13 @@ swift test --filter OmuxCLITests
 swift test --filter OmuxAppShellTests
 swift test --filter OmuxTerminalBridgeTests
 make verify
+```
+
+When changing AppKit shell behavior, accessibility identifiers, menus, pane chrome, command palette behavior, drag/drop, or UI-test helpers, run the relevant UI test slice:
+
+```bash
+make ui-test UI_TEST=PaneTests
+make ui-test UI_TEST=CommandPaletteTests/testCommandPaletteOpenClose
 ```
 
 OpenSpec changes should also be validated with the relevant change ID:

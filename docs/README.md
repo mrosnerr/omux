@@ -2,14 +2,14 @@
 
 OpenMUX documentation starts with people using the app, then branches into automation and contributor references.
 
-If you are new to OpenMUX, start with [Getting started](./getting-started.md). It covers the current beta install path, first launch, the `omux` CLI, themes, hooks, plugins, and where user files live.
+If you are new to OpenMUX, start with [Getting started](./getting-started.md). It covers the current beta install path, first launch, the `omux` CLI, themes, hooks, bundled and external plugins, Agent Sessions, and where user files live.
 
 ## Choose your path
 
 | You want to... | Start here | Then read |
 | --- | --- | --- |
 | Use OpenMUX as your daily terminal workspace | [Getting started](./getting-started.md) | [Configuration and themes](./configuration.md) |
-| Search, resume, and monitor coding-agent sessions | [Agent Sessions](./agent-sessions.md) | [Configuration and themes](./configuration.md#agent-sessions-settings), [AI Status plugin](./plugins/ai-status.md) |
+| Search, resume, and monitor coding-agent sessions | [Agent Sessions](./agent-sessions.md) | [Configuration and themes](./configuration.md#agent-sessions-settings), [AI Status](./plugins/ai-status.md) |
 | Customize themes, fonts, scrollback, or Option-key behavior | [Configuration and themes](./configuration.md) | [Getting started](./getting-started.md#customize-the-terminal) |
 | Search and run commands from the keyboard | [Command palette](./command-palette.md) | [Configuration and themes](./configuration.md) |
 | Automate your workspace with scripts | [Hooks](./hooks.md) | [Configuration and themes](./configuration.md#cli) |
@@ -24,7 +24,7 @@ If you are new to OpenMUX, start with [Getting started](./getting-started.md). I
 
 These docs describe OpenMUX from the outside: what you can run, configure, and automate.
 
-- [Getting started](./getting-started.md) - first launch, CLI setup, workspaces, panes, themes, plugins, and simple automation.
+- [Getting started](./getting-started.md) - first launch, CLI setup, workspaces, panes, Agent Sessions, themes, plugins, and simple automation.
 - [Configuration and themes](./configuration.md) - `~/.omux/config.toml`, built-in themes, custom theme tokens, Settings UI, and config commands.
 - [Agent Sessions](./agent-sessions.md) - search, resume, monitor, and delete locally indexed coding-agent sessions.
 - [Command palette](./command-palette.md) - opening modes, keyboard navigation, and how to add new commands.
@@ -55,6 +55,7 @@ OpenMUX keeps user-owned files under `~/.omux/`:
 | `~/.omux/hooks/` | Executable hook handlers grouped by hook name. |
 | `~/.omux/plugins/` | Executable plugin commands discoverable as `omux <plugin-command>`. |
 | `~/.omux/installed/` | Receipts for packages installed from hook and plugin registries. |
+| `~/.omux/agent-sessions.sqlite` | Local Agent Sessions index. |
 | `~/.omux/generated/ghostty/` | Generated terminal-engine artifacts managed by OpenMUX. |
 
 The generated directory is not the primary user API. Prefer editing `config.toml`, theme files, hook files, and plugin executables.

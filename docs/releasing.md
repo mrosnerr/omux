@@ -72,7 +72,7 @@ For direct-download installs outside Finder, the release also includes `openmux-
 curl -fsSL https://github.com/finger-gun/omux/releases/latest/download/openmux-install.sh | bash
 ```
 
-That bootstrap installer is version-pinned to the release it ships with, downloads the matching app archive plus `checksums.txt`, verifies the checksum, validates `OpenMUX.app`, and installs into `/Applications/OpenMUX.app` when writable or `~/Applications/OpenMUX.app` otherwise. It can optionally run `--install-cli` after installing the app. Like `omux update`, it does not attempt hidden privilege escalation.
+That bootstrap installer is version-pinned to the release it ships with, downloads the matching app archive plus `checksums.txt`, verifies the checksum, validates `OpenMUX.app`, and installs into `/Applications/OpenMUX.app` when writable or `~/Applications/OpenMUX.app` otherwise. It runs the bundled `omux install-cli` step by default because the CLI is part of the supported OpenMUX workflow. Pass `--no-install-cli` for app-only installs. Like `omux update`, it does not attempt hidden privilege escalation.
 
 Users can inspect and update installed releases with:
 

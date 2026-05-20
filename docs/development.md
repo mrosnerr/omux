@@ -60,6 +60,7 @@ make dev
 make build
 make test
 make verify
+make ui-test
 make smoke
 make import-themes
 make package-release
@@ -79,6 +80,10 @@ swift run omux plugins discover
 swift run omux plugins install <plugin-id>
 swift run omux plugin list
 swift run omux plugin path
+swift run omux agent-sessions open
+swift run omux agent-sessions list
+swift run omux agent-sessions search "release notes"
+swift run omux ai-status hooks setup
 swift run omux hooks discover
 swift run omux hooks install <hook-id>
 swift run omux open [path]
@@ -137,14 +142,15 @@ The current shell baseline adds:
 - real bridge-backed pane views
 - a terminal-native shell composition with persistent sidebar navigation, sidebar-owned workspace/tab switching, no persistent top bar, flatter pane chrome, and a titlebar that visually blends into the shell surface
 - direct typing into the focused pane
-- persistent pane-owned interactive shell sessions behind workspace and pane navigation instead of a separate Sessions sidebar section
-- split-right and split-down panes routed through native View menu commands instead of persistent shell buttons
+- persistent pane-owned interactive shell sessions behind workspace and pane navigation instead of a separate terminal-session sidebar section
+- split-right and split-down panes routed through native menu commands instead of persistent shell buttons
 - pane stacks at each split leaf, with local pane tabs inside a region
 - token-owned shell-and-terminal theming sourced from `~/.omux/config.toml`, user theme overrides in `~/.omux/themes/`, and bundled presets including Monokai Soda, Catppuccin, Dracula, Nord, Gruvbox, One Dark, Solarized light/dark, and imported iTerm2 Color Schemes presets
 - explicit config diagnostics and `omux config doctor` / `omux config reload` support through the same local control plane
 - a second polish pass that tightens shell proportions, makes sidebar navigation visible/useful, and gives shell controls real intrinsic sizing
 - a follow-up navigation pass that moves workspace tabs into the left rail, adds a compact sidebar workspace-creation affordance, supports workspace renaming, and disables destructive workspace/pane commands when they would empty the shell
 - generated workspace labels (`Workspace 1`, `Workspace 2`, ...) with optional custom overrides that can be reset back to their generated names
+- isolated per-workspace shell history by default, so OpenMUX-launched shells avoid sharing one global history file across unrelated workspaces
 - workspace-row and pane-tab context menus for localized rename and close flows
 - sidebar child rows for live terminals, with git-aware repo/branch/path metadata when available and path-only fallbacks otherwise
 - pane chrome that reserves its secondary status row for transient terminal state instead of duplicating cwd identity
@@ -152,6 +158,7 @@ The current shell baseline adds:
 - shared workspace/session actions used by both the UI and `omux`
 - command injection routed into ongoing live pane sessions
 - pane resize propagation into the live terminal runtime
+- drag-and-drop terminal insertion for text, URLs, and local files without automatically submitting Return
 - keyboard-first workspace controls including `Cmd+P` workspace search, `Cmd+Shift+P` command search with a leading `>` prefix, `Cmd+T`/`Cmd+W` pane-tab create/close, `Cmd+Shift+G` worktree pane-tab creation, `Cmd+D`/`Cmd+Shift+D` pane split right/down, `Cmd+Shift+W` pane remove, `Cmd+N`/`Cmd+Shift+N` workspace create/close, `Cmd+B` workspace-column toggle, `Cmd+1` through `Cmd+9` ordered workspace jumps, and `Cmd+0` previous-workspace recall
 
 ## Pane stack model
@@ -240,8 +247,8 @@ The production app initializes `ExternalHookRunner` from `~/.omux/hooks/`. Each 
 The current shell is usable, but it is still intentionally narrow:
 
 - runtime-backed transcript snapshots are still minimal until the Ghostty bridge exposes richer capture
-- paste is supported in the pane UI, but richer clipboard workflows are still follow-on work
-- pane-tab drag behavior now supports same-stack reorder and cross-stack merge, but still needs further polish for large-stack ergonomics
+- paste and drag/drop insertion are supported in the pane UI, but richer clipboard workflows are still follow-on work
+- pane-tab drag behavior supports same-stack reorder, cross-stack merge, splitting, and modal pop-out, but still needs further polish for large-stack ergonomics
 - floating pane modals reuse pane-stack renderers and can host popped-out pane tabs or plugin-owned extension panes without adding a second rendering stack
 - workspace, split, pane-stack, and session restore exists, but still needs polish under more workflows
 
@@ -283,7 +290,7 @@ make ui-test UI_TEST=PaneTests/testDragPaneTabToCreateSplit
 
 `make ui-test` builds the app, wraps it into `.build/UITestApp/OpenMUX.app` with bundle ID `dev.fingergun.omux.debug`, registers it with `lsregister`, regenerates the Xcode project, and runs `xcodebuild test`.
 
-Results land in `.build/ui-test-results.xcresult`. On CI the suite runs as a separate workflow (`.github/workflows/ui-tests.yml`) and only triggers when `Sources/OmuxAppShell`, `Sources/OpenMUXApp`, or `Tests/OmuxUITests` change.
+Results land in `.build/ui-test-results.xcresult`. On CI the suite runs as a separate workflow (`.github/workflows/ui-tests.yml`) and only triggers for UI-relevant changes, including app shell sources, app entrypoint sources, UI tests, project generation files, build scripts, workflow files, and package metadata.
 
 ### Structure
 

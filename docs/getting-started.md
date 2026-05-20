@@ -1,6 +1,6 @@
 # Getting Started with OpenMUX
 
-OpenMUX is a beta macOS terminal workspace. It gives you native windows, workspaces, tabs, split panes, persistent shell sessions, themes, a local `omux` CLI, user hooks, plugins, and extension panes.
+OpenMUX is a beta macOS terminal workspace. It gives you native windows, workspaces, tabs, split panes, persistent shell sessions, themes, a local `omux` CLI, user hooks, bundled and external plugins, Agent Sessions, and extension panes.
 
 This guide is for people who want to use OpenMUX, not contribute to its internals.
 
@@ -14,10 +14,12 @@ Fast path:
 curl -fsSL https://github.com/finger-gun/omux/releases/latest/download/openmux-install.sh | bash
 ```
 
-That script downloads the matching `OpenMUX-<version>-macos-unsigned.zip` and `checksums.txt`, verifies the SHA-256 checksum, validates the bundle, and installs `OpenMUX.app` into `/Applications` when writable or `~/Applications` otherwise. It does not invoke hidden `sudo` or request administrator privileges. Add `--install-cli` if you also want it to run the bundled `omux install-cli` step after the app install:
+That script downloads the matching `OpenMUX-<version>-macos-unsigned.zip` and `checksums.txt`, verifies the SHA-256 checksum, validates the bundle, and installs `OpenMUX.app` into `/Applications` when writable or `~/Applications` otherwise. It also links the bundled `omux` CLI into the first suitable directory on your `PATH`, or `~/.local/bin` if no preferred path is available. It does not invoke hidden `sudo` or request administrator privileges.
+
+If you only want to install the app bundle, pass `--no-install-cli`:
 
 ```bash
-curl -fsSL https://github.com/finger-gun/omux/releases/latest/download/openmux-install.sh | bash -s -- --install-cli
+curl -fsSL https://github.com/finger-gun/omux/releases/latest/download/openmux-install.sh | bash -s -- --no-install-cli
 ```
 
 Manual path:
@@ -30,9 +32,16 @@ The current app archive is ad-hoc signed so the bundle is structurally valid, bu
 
 If you are testing from source instead of a release artifact, see the [Developer quick start](./developer.md).
 
-## 2. Install the `omux` CLI
+## 2. Check the `omux` CLI
 
-The app bundle includes the `omux` command-line tool. Install it from the app with:
+The fast-path installer installs the `omux` CLI by default. Check that the command is available:
+
+```bash
+omux help
+omux version
+```
+
+If you installed only the app bundle, install the CLI from the app with:
 
 ```text
 OpenMUX -> Install omux CLI
@@ -42,13 +51,6 @@ You can also install it from Terminal:
 
 ```bash
 /Applications/OpenMUX.app/Contents/MacOS/omux install-cli
-```
-
-After installation, check that the command is available:
-
-```bash
-omux help
-omux version
 ```
 
 If the installer falls back to `~/.local/bin/omux`, make sure `~/.local/bin` is on your shell `PATH`.
@@ -119,6 +121,9 @@ In the app UI, pane tabs can be dragged:
 - drop on another stack header to merge into that stack
 - drop on the same stack header to reorder tabs in-place
 - drop on pane edges or the canvas edge zones to create splits
+- release a pane tab in the center region, or use its context menu, to pop it out into a floating modal
+
+You can also drag text, URLs, and local files into a terminal pane. OpenMUX inserts the dropped value into the focused terminal input stream; it does not submit Return for you.
 
 Terminal-targeting commands accept one explicit selector:
 
@@ -159,6 +164,26 @@ name = "monokai-soda"
 
 [workspace]
 default_root_path = "~"
+isolate_shell_history = true
+
+[agent-sessions]
+enabled = true
+preview_enabled = true
+index_on_launch = true
+collapsed_toggle_visible = true
+included_agents = ["codex", "claude", "opencode", "pi", "rovodev", "copilot", "gemini"]
+excluded_paths = []
+max_preview_bytes = 1048576
+sidebar_rows_per_agent = 10
+
+[plugins.markdown-preview]
+enabled = true
+renderer = "builtin"
+theme = "auto"
+presentation = "pane-tab"
+
+[plugins.ai-status]
+enabled = true
 
 [keys]
 "cmd+shift+w" = "pane.remove"
@@ -244,6 +269,13 @@ omux plugins
 
 Bundled plugins can be toggled from the interactive picker. External plugins are executable files under `~/.omux/plugins/`; see [Plugin ecosystem](./plugins.md) to create one and [Plugin index](./plugins/index.md) for bundled plugin docs.
 
+Common bundled plugin commands:
+
+```bash
+omux markdown-preview README.md --watch
+omux ai-status hooks setup
+```
+
 Discover and install registry-hosted plugins:
 
 ```bash
@@ -260,6 +292,7 @@ omux plugins install <plugin-id>
 | `~/.omux/hooks/` | User hook handlers. |
 | `~/.omux/plugins/` | User plugin commands. |
 | `~/.omux/installed/` | Receipts for registry-installed hooks and plugins. |
+| `~/.omux/agent-sessions.sqlite` | Local Agent Sessions index. |
 | `~/.omux/generated/ghostty/` | Generated OpenMUX-managed terminal config. |
 
 Prefer editing `config.toml`, custom theme files, hook files, and plugin executables. The generated Ghostty directory is managed by OpenMUX.
@@ -267,6 +300,7 @@ Prefer editing `config.toml`, custom theme files, hook files, and plugin executa
 ## Next steps
 
 - Read [Configuration and themes](./configuration.md) to customize appearance and terminal behavior.
+- Read [Agent Sessions](./agent-sessions.md) to search and resume local coding-agent sessions.
 - Read [Hooks](./hooks.md) to automate workspace actions.
 - Read [Plugins](./plugins/index.md) to see bundled plugins and plugin management.
 - Read the [Roadmap](./roadmap.md) to understand current beta limitations and planned work.

@@ -17,7 +17,7 @@ You can also open it from the **View** menu.
 
 You can also switch mode inline: type `>` at the start of the field to enter command mode, or delete it to return to workspace mode.
 
-Common command-mode entries include opening `~/.omux/config.toml`, reloading configuration, splitting panes, creating pane-local tabs, switching themes, and running public `omux` commands.
+Common command-mode entries include opening `~/.omux/config.toml`, reloading configuration, splitting panes, creating pane-local tabs, opening Agent Sessions, switching themes, and running public `omux` commands.
 
 ## Navigating
 
@@ -107,6 +107,7 @@ pane.resize-up           pane.resize-down pane.resize-left pane.resize-right
 pane.resize-equalize     sidebar.toggle
 pane-tab.create          pane-tab.create-worktree          pane-tab.close
 pane-tab.next            pane-tab.previous
+agent-sessions.toggle
 ```
 
 **`"builtin"`** — either the app-owned `theme.switch` target, or a generated `omux` CLI command from `OpenMUXCLICommandCatalog`. Add CLI commands there instead of creating a JSON descriptor or local allow-list.
