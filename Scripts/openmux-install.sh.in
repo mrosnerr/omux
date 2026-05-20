@@ -235,7 +235,7 @@ log "Installed OpenMUX $VERSION at $INSTALL_TARGET"
 BUNDLED_OMUX="$INSTALL_TARGET/Contents/MacOS/omux"
 if [ "$INSTALL_CLI" = "1" ]; then
   [ -x "$BUNDLED_OMUX" ] || fail "missing bundled omux executable at $BUNDLED_OMUX"
-  "$BUNDLED_OMUX" install-cli
+  "$BUNDLED_OMUX" install-cli "${HOME:?HOME is required}/.local/bin/omux"
 else
   log "Install the bundled CLI with:"
   log "  $BUNDLED_OMUX install-cli"
