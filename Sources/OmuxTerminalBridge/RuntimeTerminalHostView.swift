@@ -518,7 +518,7 @@ enum TerminalDroppedFileText {
         // Non-file URLs (e.g. https:// link drags).
         let nonFileURLs = allURLs.filter { !$0.isFileURL }
         if !nonFileURLs.isEmpty {
-            return nonFileURLs.map(\.absoluteString).joined(separator: " ")
+            return nonFileURLs.map { shellQuotedPath($0.absoluteString) }.joined(separator: " ")
         }
 
         // Fall back to plain string content (selected text drags).

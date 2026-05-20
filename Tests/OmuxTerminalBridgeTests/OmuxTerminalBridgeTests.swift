@@ -878,7 +878,18 @@ final class OmuxTerminalBridgeTests: XCTestCase {
         pb.writeObjects([url as NSURL])
 
         let result = TerminalDroppedFileText.pasteText(from: pb)
-        XCTAssertEqual(result, "https://example.com/photo.png")
+        XCTAssertEqual(result, "'https://example.com/photo.png'")
+    }
+
+    func testPasteTextFromPasteboardQuotesURLWithShellMetacharacters() {
+        let pb = NSPasteboard(name: .init("test.urlmeta.\(UUID().uuidString)"))
+        defer { pb.releaseGlobally() }
+        pb.declareTypes([.URL], owner: nil)
+        let url = URL(string: "https://example.com/search?q=hello&lang=en")!
+        pb.writeObjects([url as NSURL])
+
+        let result = TerminalDroppedFileText.pasteText(from: pb)
+        XCTAssertEqual(result, "'https://example.com/search?q=hello&lang=en'")
     }
 
     func testPasteTextFromPasteboardFallsBackToString() {
