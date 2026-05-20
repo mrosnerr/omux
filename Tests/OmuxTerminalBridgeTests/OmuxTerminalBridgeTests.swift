@@ -858,6 +858,91 @@ final class OmuxTerminalBridgeTests: XCTestCase {
         XCTAssertEqual(pasteText, "'/tmp/plain.txt' '/tmp/has space/it'\\''s.png'")
     }
 
+    func testDroppedFilePathTextReturnsNilForEmptyURLs() {
+        XCTAssertNil(TerminalDroppedFileText.pasteText(for: []))
+    }
+
+    func testDroppedFilePathTextIgnoresNonFileURLs() {
+        let urls = [URL(string: "https://example.com/image.png")!]
+        XCTAssertNil(TerminalDroppedFileText.pasteText(for: urls))
+    }
+
+    func testPasteTextFromPasteboardPrefersFileURLs() {
+        let pb = NSPasteboard(name: .init("test.fileURL.\(UUID().uuidString)"))
+        defer { pb.releaseGlobally() }
+        pb.declareTypes([.fileURL], owner: nil)
+        pb.writeObjects([URL(fileURLWithPath: "/tmp/hello world.txt") as NSURL])
+
+        let result = TerminalDroppedFileText.pasteText(from: pb)
+        XCTAssertEqual(result, "'/tmp/hello world.txt'")
+    }
+
+    func testPasteTextFromPasteboardFallsBackToNonFileURL() {
+        let pb = NSPasteboard(name: .init("test.url.\(UUID().uuidString)"))
+        defer { pb.releaseGlobally() }
+        pb.declareTypes([.URL], owner: nil)
+        let url = URL(string: "https://example.com/photo.png")!
+        pb.writeObjects([url as NSURL])
+
+        let result = TerminalDroppedFileText.pasteText(from: pb)
+        XCTAssertEqual(result, "'https://example.com/photo.png'")
+    }
+
+    func testPasteTextFromPasteboardQuotesURLWithShellMetacharacters() {
+        let pb = NSPasteboard(name: .init("test.urlmeta.\(UUID().uuidString)"))
+        defer { pb.releaseGlobally() }
+        pb.declareTypes([.URL], owner: nil)
+        let url = URL(string: "https://example.com/search?q=hello&lang=en")!
+        pb.writeObjects([url as NSURL])
+
+        let result = TerminalDroppedFileText.pasteText(from: pb)
+        XCTAssertEqual(result, "'https://example.com/search?q=hello&lang=en'")
+    }
+
+    func testPasteTextFromPasteboardFallsBackToString() {
+        let pb = NSPasteboard(name: .init("test.string.\(UUID().uuidString)"))
+        defer { pb.releaseGlobally() }
+        pb.declareTypes([.string], owner: nil)
+        pb.setString("dragged text content", forType: .string)
+
+        let result = TerminalDroppedFileText.pasteText(from: pb)
+        XCTAssertEqual(result, "dragged text content")
+    }
+
+    func testPasteTextFromPasteboardReturnsNilForEmptyPasteboard() {
+        let pb = NSPasteboard(name: .init("test.empty.\(UUID().uuidString)"))
+        defer { pb.releaseGlobally() }
+        pb.declareTypes([], owner: nil)
+
+        let result = TerminalDroppedFileText.pasteText(from: pb)
+        XCTAssertNil(result)
+    }
+
+    func testPasteTextFromPasteboardFileURLTakesPriorityOverString() {
+        let pb = NSPasteboard(name: .init("test.priority.\(UUID().uuidString)"))
+        defer { pb.releaseGlobally() }
+        pb.declareTypes([.fileURL, .string], owner: nil)
+        pb.writeObjects([URL(fileURLWithPath: "/tmp/file.txt") as NSURL])
+        pb.setString("fallback text", forType: .string)
+
+        let result = TerminalDroppedFileText.pasteText(from: pb)
+        XCTAssertEqual(result, "'/tmp/file.txt'")
+    }
+
+    func testPasteTextFromPasteboardJoinsMultipleFileURLs() {
+        let pb = NSPasteboard(name: .init("test.multi.\(UUID().uuidString)"))
+        defer { pb.releaseGlobally() }
+        pb.declareTypes([.fileURL], owner: nil)
+        pb.writeObjects([
+            URL(fileURLWithPath: "/tmp/first.txt") as NSURL,
+            URL(fileURLWithPath: "/tmp/second file.txt") as NSURL,
+            URL(fileURLWithPath: "/tmp/it's third.txt") as NSURL,
+        ])
+
+        let result = TerminalDroppedFileText.pasteText(from: pb)
+        XCTAssertEqual(result, "'/tmp/first.txt' '/tmp/second file.txt' '/tmp/it'\\''s third.txt'")
+    }
+
     @MainActor
     func testRuntimeHostedViewForwardsCommandArrowToGhosttySemantics() throws {
         let runtime = InspectableGhosttyRuntime()
