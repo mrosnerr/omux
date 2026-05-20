@@ -2950,6 +2950,14 @@ public final class WorkspaceController: @unchecked Sendable {
         terminalActionCoordinator.handle(event)
     }
 
+    func handleSurfaceClosed(paneID: PaneID, processAlive: Bool) {
+        // When the child process has already exited, close the pane
+        // automatically. If the process is still alive, this is a
+        // user-initiated close that may need confirmation — not yet handled.
+        guard !processAlive else { return }
+        _ = try? closePane(paneID: paneID)
+    }
+
     private func emitInputSent(
         context: ControlPlaneTerminalContext,
         text: String?,

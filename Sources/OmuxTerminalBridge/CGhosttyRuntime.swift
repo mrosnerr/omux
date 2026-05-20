@@ -316,7 +316,15 @@ public final class CGhosttyRuntime: @unchecked Sendable, GhosttyRuntime {
                         confirm: confirm
                     )
                 },
-                close_surface_cb: nil
+                close_surface_cb: { userdata, processAlive in
+                    guard let context = HostedRuntimeClipboard.callbackContext(fromSurfaceUserdata: userdata) else {
+                        return
+                    }
+                    context.runtime.handleSurfaceClose(
+                        runtimeSurfaceID: context.runtimeSurfaceID,
+                        processAlive: processAlive
+                    )
+                }
             )
 
             self.config = config
@@ -341,6 +349,7 @@ public final class CGhosttyRuntime: @unchecked Sendable, GhosttyRuntime {
     private var tickScheduled = false
     private var compiledConfigPath: URL?
     private var terminalActionHandler: (@Sendable (RuntimeTerminalActionRecord) -> Bool)?
+    private var surfaceCloseHandler: (@Sendable (_ runtimeSurfaceID: String, _ processAlive: Bool) -> Void)?
 
     public init(compiledConfigPath: URL? = nil) {
         self.compiledConfigPath = compiledConfigPath
@@ -359,6 +368,14 @@ public final class CGhosttyRuntime: @unchecked Sendable, GhosttyRuntime {
     ) {
         lock.lock()
         terminalActionHandler = handler
+        lock.unlock()
+    }
+
+    public func setSurfaceCloseHandler(
+        _ handler: (@Sendable (_ runtimeSurfaceID: String, _ processAlive: Bool) -> Void)?
+    ) {
+        lock.lock()
+        surfaceCloseHandler = handler
         lock.unlock()
     }
 
@@ -472,6 +489,13 @@ public final class CGhosttyRuntime: @unchecked Sendable, GhosttyRuntime {
         let handler = terminalActionHandler
         lock.unlock()
         return handler?(RuntimeTerminalActionRecord(runtimeSurfaceID: runtimeSurfaceID, action: terminalAction)) ?? false
+    }
+
+    private func handleSurfaceClose(runtimeSurfaceID: String, processAlive: Bool) {
+        lock.lock()
+        let handler = surfaceCloseHandler
+        lock.unlock()
+        handler?(runtimeSurfaceID, processAlive)
     }
 
     private func runtimeSurfaceID(for surface: ghostty_surface_t?) -> String? {

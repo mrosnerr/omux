@@ -51,6 +51,9 @@ public protocol GhosttyRuntime {
     func setTerminalActionHandler(
         _ handler: (@Sendable (RuntimeTerminalActionRecord) -> Bool)?
     )
+    func setSurfaceCloseHandler(
+        _ handler: (@Sendable (_ runtimeSurfaceID: String, _ processAlive: Bool) -> Void)?
+    )
     func snapshot(
         paneID: PaneID,
         sessionID: SessionID,
@@ -115,6 +118,12 @@ public extension GhosttyRuntime {
 
     func setTerminalActionHandler(
         _ handler: (@Sendable (RuntimeTerminalActionRecord) -> Bool)?
+    ) {
+        _ = handler
+    }
+
+    func setSurfaceCloseHandler(
+        _ handler: (@Sendable (_ runtimeSurfaceID: String, _ processAlive: Bool) -> Void)?
     ) {
         _ = handler
     }
@@ -397,6 +406,7 @@ public final class GhosttyTerminalBridge: @unchecked Sendable {
     private var sessionStateByPane: [PaneID: SessionState] = [:]
     private var observers: [PaneID: [UUID: @Sendable (TerminalSessionSnapshot) -> Void]] = [:]
     private var terminalActionObservers: [UUID: @Sendable (TerminalActionEvent) -> Void] = [:]
+    private var surfaceCloseObservers: [UUID: @Sendable (_ paneID: PaneID, _ processAlive: Bool) -> Void] = [:]
 
     public init(
         dependency: GhosttyPinnedDependency = .foundationDefault(),
@@ -407,6 +417,9 @@ public final class GhosttyTerminalBridge: @unchecked Sendable {
         self.runtime = runtime ?? defaultGhosttyRuntime(compiledConfigPath: compiledConfigPath)
         self.runtime.setTerminalActionHandler { [weak self] record in
             self?.handleRuntimeTerminalAction(record) ?? false
+        }
+        self.runtime.setSurfaceCloseHandler { [weak self] runtimeSurfaceID, processAlive in
+            self?.handleRuntimeSurfaceClose(runtimeSurfaceID: runtimeSurfaceID, processAlive: processAlive)
         }
     }
 
@@ -660,6 +673,23 @@ public final class GhosttyTerminalBridge: @unchecked Sendable {
         lock.unlock()
     }
 
+    @discardableResult
+    public func addSurfaceCloseObserver(
+        observer: @escaping @Sendable (_ paneID: PaneID, _ processAlive: Bool) -> Void
+    ) -> UUID {
+        let token = UUID()
+        lock.lock()
+        surfaceCloseObservers[token] = observer
+        lock.unlock()
+        return token
+    }
+
+    public func removeSurfaceCloseObserver(token: UUID) {
+        lock.lock()
+        surfaceCloseObservers.removeValue(forKey: token)
+        lock.unlock()
+    }
+
     public func handle(_ event: NormalizedKeyEvent, inPane paneID: PaneID) throws {
         lock.lock()
         let state = sessionStateByPane[paneID]
@@ -798,6 +828,19 @@ public final class GhosttyTerminalBridge: @unchecked Sendable {
             observer(event)
         }
         return true
+    }
+
+    private func handleRuntimeSurfaceClose(runtimeSurfaceID: String, processAlive: Bool) {
+        lock.lock()
+        let paneID = surfaces.values.first(where: { $0.runtimeSurfaceID == runtimeSurfaceID })?.paneID
+        let closeObservers = surfaceCloseObservers.map(\.value)
+        lock.unlock()
+
+        guard let paneID else { return }
+
+        for observer in closeObservers {
+            observer(paneID, processAlive)
+        }
     }
 
     private func makeSnapshot(for paneID: PaneID) -> TerminalSessionSnapshot? {

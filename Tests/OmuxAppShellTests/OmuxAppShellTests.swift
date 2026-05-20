@@ -6720,6 +6720,54 @@ final class OmuxAppShellTests: XCTestCase {
                        "hitTest should not land inside the shell overlay when no modal is presented")
     }
 
+    func testPaneClosesAutomaticallyWhenChildProcessExits() throws {
+        let runtime = ActionEmittingGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let controller = WorkspaceController(
+            bridge: bridge,
+            hookRunner: ExternalHookRunner()
+        )
+        let workspace = try controller.openWorkspace(at: "/tmp")
+        let firstPane = workspace.focusedPane!
+
+        // Add a second pane so close has a sibling to fall back to.
+        let splitWorkspace = try XCTUnwrap(controller.splitFocusedPane(axis: .columns))
+        let secondPane = try XCTUnwrap(splitWorkspace.focusedPane)
+
+        let runtimeSurfaceID = bridge.surface(for: firstPane.id)!.runtimeSurfaceID
+
+        XCTAssertEqual(controller.allWorkspaces().flatMap(\.panes).count, 2,
+                       "workspace should have two panes after split")
+
+        // Simulate libghostty calling close_surface_cb after child exits
+        runtime.simulateSurfaceClose(runtimeSurfaceID: runtimeSurfaceID, processAlive: false)
+
+        let remainingPanes = controller.allWorkspaces().flatMap(\.panes)
+        XCTAssertEqual(remainingPanes.count, 1,
+                       "exited pane should be removed")
+        XCTAssertEqual(remainingPanes.first?.id, secondPane.id,
+                       "the surviving pane should be the sibling")
+    }
+
+    func testLastPaneIsNotRemovedWhenChildProcessExits() throws {
+        let runtime = ActionEmittingGhosttyRuntime()
+        let bridge = GhosttyTerminalBridge(runtime: runtime)
+        let controller = WorkspaceController(
+            bridge: bridge,
+            hookRunner: ExternalHookRunner()
+        )
+        let workspace = try controller.openWorkspace(at: "/tmp")
+        let pane = workspace.focusedPane!
+
+        let runtimeSurfaceID = bridge.surface(for: pane.id)!.runtimeSurfaceID
+
+        // Simulate exit on the only pane — it should stay because it's the last one.
+        runtime.simulateSurfaceClose(runtimeSurfaceID: runtimeSurfaceID, processAlive: false)
+
+        XCTAssertEqual(controller.allWorkspaces().flatMap(\.panes).count, 1,
+                       "last pane in workspace should not be removed")
+    }
+
     private func runGit(_ arguments: [String]) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
@@ -6760,6 +6808,7 @@ private final class ActionEmittingGhosttyRuntime: GhosttyRuntime {
     private var transcriptBySurface: [String: String] = [:]
     private var inputBySurface: [String: String] = [:]
     private var terminalActionHandler: (@Sendable (RuntimeTerminalActionRecord) -> Bool)?
+    private var surfaceCloseHandler: (@Sendable (_ runtimeSurfaceID: String, _ processAlive: Bool) -> Void)?
     var scrollbackBySurface: [String: String] = [:]
     var transcript = ""
     var sentTextCount = 0
@@ -6835,6 +6884,16 @@ private final class ActionEmittingGhosttyRuntime: GhosttyRuntime {
         _ handler: (@Sendable (RuntimeTerminalActionRecord) -> Bool)?
     ) {
         terminalActionHandler = handler
+    }
+
+    func setSurfaceCloseHandler(
+        _ handler: (@Sendable (_ runtimeSurfaceID: String, _ processAlive: Bool) -> Void)?
+    ) {
+        surfaceCloseHandler = handler
+    }
+
+    func simulateSurfaceClose(runtimeSurfaceID: String, processAlive: Bool) {
+        surfaceCloseHandler?(runtimeSurfaceID, processAlive)
     }
 
     func snapshot(

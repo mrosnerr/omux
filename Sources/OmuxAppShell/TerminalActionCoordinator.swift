@@ -49,6 +49,7 @@ final class TerminalActionCoordinator {
     private let hookRunner: ExternalHookRunner
     private let hostHandler: any TerminalActionHostHandling
     private let observerToken: UUID
+    private let closeObserverToken: UUID
 
     init(
         bridge: GhosttyTerminalBridge,
@@ -63,10 +64,14 @@ final class TerminalActionCoordinator {
         self.observerToken = bridge.addTerminalActionObserver { [weak controller] event in
             controller?.terminalActionCoordinatorHandle(event)
         }
+        self.closeObserverToken = bridge.addSurfaceCloseObserver { [weak controller] paneID, processAlive in
+            controller?.handleSurfaceClosed(paneID: paneID, processAlive: processAlive)
+        }
     }
 
     deinit {
         bridge.removeTerminalActionObserver(token: observerToken)
+        bridge.removeSurfaceCloseObserver(token: closeObserverToken)
     }
 
     func handle(_ event: TerminalActionEvent) {
