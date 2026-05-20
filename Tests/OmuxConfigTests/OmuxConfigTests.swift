@@ -693,6 +693,7 @@ struct OmuxConfigTests {
         #expect(contents.contains("# provider = \"nerd-font\""))
         #expect(contents.contains("# colors_enabled = true"))
         #expect(contents.contains("[agent-sessions]"))
+        #expect(contents.contains("collapsed_toggle_visible = true"))
         #expect(contents.contains("[plugins.markdown-preview]"))
         #expect(contents.contains("enabled = true"))
         #expect(contents.contains("renderer = \"builtin\""))
@@ -724,6 +725,7 @@ struct OmuxConfigTests {
             enabled = true
             preview_enabled = false
             index_on_launch = false
+            collapsed_toggle_visible = false
             included_agents = ["codex", "copilot"]
             excluded_paths = ["~/secret"]
             max_preview_bytes = 2048
@@ -741,6 +743,7 @@ struct OmuxConfigTests {
         #expect(result.hasErrors == false)
         #expect(result.config.agentSessions.previewEnabled == false)
         #expect(result.config.agentSessions.indexOnLaunch == false)
+        #expect(result.config.agentSessions.collapsedToggleVisible == false)
         #expect(result.config.agentSessions.includedAgents == ["codex", "copilot"])
         #expect(result.config.agentSessions.excludedPaths == ["~/secret"])
         #expect(result.config.agentSessions.maxPreviewBytes == 2048)

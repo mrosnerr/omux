@@ -11,6 +11,7 @@ private enum ShellLayoutMetrics {
     static let sidebarWidth: CGFloat = 224
     static let vaultSidebarWidth: CGFloat = 280
     static let vaultToggleSize: CGFloat = 28
+    static let vaultToggleReservedWidth: CGFloat = 32
     static let outerPadding: CGFloat = 0
     static let interRegionSpacing: CGFloat = 0
     static let canvasPadding: CGFloat = 0
@@ -309,6 +310,7 @@ final class WorkspaceShellViewController: NSViewController {
 
         vaultToggleButton.isBordered = false
         vaultToggleButton.image = NSImage(systemSymbolName: "sidebar.right", accessibilityDescription: "Toggle Agent Sessions")
+        vaultToggleButton.identifier = NSUserInterfaceItemIdentifier("vault-sidebar-toggle")
         vaultToggleButton.target = self
         vaultToggleButton.action = #selector(toggleVaultSidebarPressed)
         vaultToggleButton.translatesAutoresizingMaskIntoConstraints = false
@@ -317,7 +319,9 @@ final class WorkspaceShellViewController: NSViewController {
         view.addSubview(mainColumn)
         if vaultConfiguration.enabled {
             view.addSubview(vaultSidebarView)
-            view.addSubview(vaultToggleButton)
+            if vaultConfiguration.collapsedToggleVisible {
+                view.addSubview(vaultToggleButton)
+            }
         }
         view.addSubview(shellOverlayHostView)
 
@@ -334,7 +338,10 @@ final class WorkspaceShellViewController: NSViewController {
                 equalTo: vaultSidebarView.leadingAnchor,
                 constant: -ShellLayoutMetrics.interRegionSpacing
             )
-            : mainColumn.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -ShellLayoutMetrics.outerPadding)
+            : mainColumn.trailingAnchor.constraint(
+                equalTo: view.trailingAnchor,
+                constant: -ShellLayoutMetrics.outerPadding - reservedWidthForCollapsedVaultToggle
+            )
         self.sidebarWidthConstraint = sidebarWidthConstraint
         self.vaultSidebarWidthConstraint = vaultSidebarWidthConstraint
         self.mainColumnLeadingConstraint = mainColumnLeadingConstraint
@@ -355,16 +362,19 @@ final class WorkspaceShellViewController: NSViewController {
 
         if vaultConfiguration.enabled, let vaultSidebarWidthConstraint {
             constraints += [
-            vaultSidebarView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            vaultSidebarView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            vaultSidebarView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            vaultSidebarWidthConstraint,
-
-            vaultToggleButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 10),
-            vaultToggleButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -10),
-            vaultToggleButton.widthAnchor.constraint(equalToConstant: ShellLayoutMetrics.vaultToggleSize),
-            vaultToggleButton.heightAnchor.constraint(equalToConstant: ShellLayoutMetrics.vaultToggleSize),
+                vaultSidebarView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+                vaultSidebarView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+                vaultSidebarView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+                vaultSidebarWidthConstraint,
             ]
+            if vaultConfiguration.collapsedToggleVisible {
+                constraints += [
+                    vaultToggleButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 10),
+                    vaultToggleButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -4),
+                    vaultToggleButton.widthAnchor.constraint(equalToConstant: ShellLayoutMetrics.vaultToggleSize),
+                    vaultToggleButton.heightAnchor.constraint(equalToConstant: ShellLayoutMetrics.vaultToggleSize),
+                ]
+            }
         }
 
         constraints += [
@@ -421,6 +431,11 @@ final class WorkspaceShellViewController: NSViewController {
     }
 
     func update(workspace: Workspace) {
+        if paneTabDragState != nil {
+            deferredWorkspaceUpdateDuringPaneTabDrag = workspace
+            return
+        }
+
         let previousWorkspace = currentWorkspace
         let previousWorkspaceID = currentWorkspace?.id
         let previousFocusedPaneID = currentWorkspace?.focusedPane?.id
@@ -1056,11 +1071,23 @@ final class WorkspaceShellViewController: NSViewController {
     private func applyVaultSidebarVisibility() {
         let isVisible = vaultConfiguration.enabled && isVaultSidebarVisible
         vaultSidebarView.isHidden = !isVisible
-        vaultToggleButton.isHidden = !vaultConfiguration.enabled || isVisible
+        vaultToggleButton.isHidden = !vaultConfiguration.enabled || !vaultConfiguration.collapsedToggleVisible || isVisible
         vaultToggleButton.contentTintColor = currentTheme.shell.textMuted
         vaultSidebarWidthConstraint?.constant = isVisible ? ShellLayoutMetrics.vaultSidebarWidth : 0
-        mainColumnTrailingConstraint?.constant = isVisible ? -ShellLayoutMetrics.interRegionSpacing : 0
+        mainColumnTrailingConstraint?.constant = isVisible
+            ? -ShellLayoutMetrics.interRegionSpacing
+            : -ShellLayoutMetrics.outerPadding - reservedWidthForCollapsedVaultToggle
         view.layoutSubtreeIfNeeded()
+    }
+
+    private var reservedWidthForCollapsedVaultToggle: CGFloat {
+        guard vaultConfiguration.enabled else {
+            return 0
+        }
+        guard vaultConfiguration.collapsedToggleVisible else {
+            return 0
+        }
+        return ShellLayoutMetrics.vaultToggleReservedWidth
     }
 
     private func configureVaultSourceIndexing() {
@@ -1903,8 +1930,8 @@ final class WorkspaceShellViewController: NSViewController {
     private func presentRenamePanePrompt(paneID: PaneID, currentTitle: String) {
         let alert = NSAlert()
         alert.messageText = "Rename Tab"
-        alert.informativeText = "Choose a new name for this terminal tab."
-        alert.addButton(withTitle: "Rename")
+        alert.informativeText = "Set a custom tab name. Leave empty to clear the custom name."
+        alert.addButton(withTitle: "Save")
         alert.addButton(withTitle: "Cancel")
 
         let nameField = NSTextField(string: currentTitle)
@@ -1913,7 +1940,12 @@ final class WorkspaceShellViewController: NSViewController {
 
         let rename = { [weak self] in
             guard let self else { return }
-            _ = controller.renamePaneTab(paneID, to: nameField.stringValue)
+            let trimmed = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                _ = try? controller.clearPaneAlias(paneID)
+            } else {
+                _ = try? controller.setPaneAlias(paneID, to: trimmed)
+            }
         }
 
         if let window = view.window {
@@ -1985,7 +2017,7 @@ final class WorkspaceShellViewController: NSViewController {
     ) -> NSMenu {
         let menu = NSMenu()
         menu.addItem(withTitle: "Rename…", action: nil, keyEquivalent: "").onSelect { [weak self] in
-            self?.presentRenamePanePrompt(paneID: pane.id, currentTitle: pane.title)
+            self?.presentRenamePanePrompt(paneID: pane.id, currentTitle: pane.displayTitle)
         }
 
         let popOutItem = menu.addItem(withTitle: "Pop Out to Modal", action: nil, keyEquivalent: "")
@@ -2040,6 +2072,83 @@ final class WorkspaceShellViewController: NSViewController {
         }
         print("omux.appshell.reconcile reused=\(metrics.reusedHostViews) rebuilt=\(metrics.rebuiltHostViews)")
         #endif
+    }
+
+    @MainActor
+    private func registerRenamePaneTabUndo(
+        paneID: PaneID,
+        oldAlias: String?,
+        newName: String
+    ) {
+        guard let undoManager = view.window?.undoManager else {
+            return
+        }
+
+        undoManager.registerUndo(withTarget: self) { target in
+            Task { @MainActor in
+                if let oldAlias {
+                    _ = try? target.controller.setPaneAlias(paneID, to: oldAlias)
+                } else {
+                    _ = try? target.controller.clearPaneAlias(paneID)
+                }
+                target.registerRenamePaneTabRedo(paneID: paneID, newName: newName)
+            }
+        }
+        undoManager.setActionName("Rename Tab")
+    }
+
+    @MainActor
+    private func registerRenamePaneTabRedo(
+        paneID: PaneID,
+        newName: String
+    ) {
+        guard let undoManager = view.window?.undoManager else {
+            return
+        }
+
+        undoManager.registerUndo(withTarget: self) { target in
+            Task { @MainActor in
+                _ = try? target.controller.setPaneAlias(paneID, to: newName)
+                target.view.window?.undoManager?.setActionName("Rename Tab")
+            }
+        }
+    }
+
+    @MainActor
+    private func registerClearPaneTabAliasUndo(
+        paneID: PaneID,
+        oldAlias: String?
+    ) {
+        guard let undoManager = view.window?.undoManager else {
+            return
+        }
+
+        undoManager.registerUndo(withTarget: self) { target in
+            Task { @MainActor in
+                if let oldAlias {
+                    _ = try? target.controller.setPaneAlias(paneID, to: oldAlias)
+                }
+            }
+        }
+        undoManager.setActionName("Clear Tab Name")
+    }
+
+    private func makeRenamePaneTabHandler() -> (PaneID, String) -> Void {
+        { [weak self] paneID, newName in
+            guard let self else { return }
+            let oldAlias = controller.pane(paneID)?.userAlias
+            guard let _ = try? controller.setPaneAlias(paneID, to: newName) else { return }
+            self.registerRenamePaneTabUndo(paneID: paneID, oldAlias: oldAlias, newName: newName)
+        }
+    }
+
+    private func makeClearPaneTabAliasHandler() -> (PaneID) -> Void {
+        { [weak self] paneID in
+            guard let self else { return }
+            let oldAlias = controller.pane(paneID)?.userAlias
+            guard let _ = try? controller.clearPaneAlias(paneID) else { return }
+            self.registerClearPaneTabAliasUndo(paneID: paneID, oldAlias: oldAlias)
+        }
     }
 
     private func reconcileLayoutView(
@@ -2110,7 +2219,9 @@ final class WorkspaceShellViewController: NSViewController {
                 },
                 onExtensionPaneAction: { [weak self] request in
                     self?.onExtensionPaneAction(request)
-                }
+                },
+                onRenamePaneTab: makeRenamePaneTabHandler(),
+                onClearPaneTabAlias: makeClearPaneTabAliasHandler()
             )
             return (true, paneStack.focusedPaneID == focusedPaneID ? stackView.focusedPaneView : nil, 1)
 
@@ -2223,7 +2334,9 @@ final class WorkspaceShellViewController: NSViewController {
                 },
                 onExtensionPaneAction: { [weak self] request in
                     self?.onExtensionPaneAction(request)
-                }
+                },
+                onRenamePaneTab: makeRenamePaneTabHandler(),
+                onClearPaneTabAlias: makeClearPaneTabAliasHandler()
             )
             return (
                 stackView,
@@ -2504,6 +2617,7 @@ final class WorkspaceShellViewController: NSViewController {
         var ghostView: NSView?
     }
     private var paneTabDragState: PaneTabDragState?
+    private var deferredWorkspaceUpdateDuringPaneTabDrag: Workspace?
 
     private func canStartPaneTabDrag(paneID: PaneID, sourceStackID: PaneStackID) -> Bool {
         guard let workspace = currentWorkspace else {
@@ -2532,6 +2646,7 @@ final class WorkspaceShellViewController: NSViewController {
             return
         }
         clearPaneTabSplitPreview()
+        deferredWorkspaceUpdateDuringPaneTabDrag = nil
         let ghost = makePaneTabDragGhost(for: button)
         paneTabDragState = PaneTabDragState(
             paneID: paneID,
@@ -2623,6 +2738,7 @@ final class WorkspaceShellViewController: NSViewController {
             dragState.ghostView?.removeFromSuperview()
             paneTabDragState = nil
             clearPaneTabSplitPreview()
+            applyDeferredWorkspaceUpdateAfterPaneTabDragIfNeeded()
         }
 
         guard let intent = dragState.dropIntent else { return }
@@ -2670,6 +2786,15 @@ final class WorkspaceShellViewController: NSViewController {
         dragState.ghostView?.removeFromSuperview()
         paneTabDragState = nil
         clearPaneTabSplitPreview()
+        applyDeferredWorkspaceUpdateAfterPaneTabDragIfNeeded()
+    }
+
+    private func applyDeferredWorkspaceUpdateAfterPaneTabDragIfNeeded() {
+        guard let workspace = deferredWorkspaceUpdateDuringPaneTabDrag else {
+            return
+        }
+        deferredWorkspaceUpdateDuringPaneTabDrag = nil
+        update(workspace: workspace)
     }
 
     private func paneStackView(atWindowLocation location: NSPoint) -> PaneStackView? {
@@ -5529,6 +5654,8 @@ final class PaneStackView: NSView {
         onTextActivation: @escaping @MainActor (TerminalTextActivationRequest) -> Bool,
         onTextActivationHover: @escaping @MainActor (TerminalTextActivationRequest) -> Bool,
         onExtensionPaneAction: @escaping @MainActor (ExtensionPaneActionRequest) -> Void,
+        onRenamePaneTab: ((PaneID, String) -> Void)? = nil,
+        onClearPaneTabAlias: ((PaneID) -> Void)? = nil,
         showsHeader: Bool = true
     ) {
         self.showsHeader = showsHeader
@@ -5575,9 +5702,12 @@ final class PaneStackView: NSView {
             onPaneTabDragStarted: onPaneTabDragStarted,
             onPaneTabDragMoved: onPaneTabDragMoved,
             onPaneTabDragEnded: onPaneTabDragEnded,
-            onPaneTabDragCancelled: onPaneTabDragCancelled
+            onPaneTabDragCancelled: onPaneTabDragCancelled,
+            onRenamePaneTab: onRenamePaneTab,
+            onClearPaneTabAlias: onClearPaneTabAlias
         ) : nil
         self.headerView = headerView
+        headerView?.scrollActiveTabToVisible()
         paneCardView.configure(
             headerView: headerView,
             statusText: activePane.terminalState.statusSummary,
@@ -5630,6 +5760,8 @@ final class PaneStackView: NSView {
         onTextActivation: @escaping @MainActor (TerminalTextActivationRequest) -> Bool,
         onTextActivationHover: @escaping @MainActor (TerminalTextActivationRequest) -> Bool,
         onExtensionPaneAction: @escaping @MainActor (ExtensionPaneActionRequest) -> Void,
+        onRenamePaneTab: ((PaneID, String) -> Void)? = nil,
+        onClearPaneTabAlias: ((PaneID) -> Void)? = nil,
         showsHeader: Bool = true
     ) {
         precondition(showsHeader == self.showsHeader, "PaneStackView header visibility cannot change during reconciliation.")
@@ -5685,9 +5817,12 @@ final class PaneStackView: NSView {
             onPaneTabDragStarted: onPaneTabDragStarted,
             onPaneTabDragMoved: onPaneTabDragMoved,
             onPaneTabDragEnded: onPaneTabDragEnded,
-            onPaneTabDragCancelled: onPaneTabDragCancelled
+            onPaneTabDragCancelled: onPaneTabDragCancelled,
+            onRenamePaneTab: onRenamePaneTab,
+            onClearPaneTabAlias: onClearPaneTabAlias
         ) : nil
         self.headerView = headerView
+        headerView?.scrollActiveTabToVisible()
         paneRenderer.updateFocusState(activePane.id == focusedPaneID)
         paneCardView.configure(
             headerView: headerView,
@@ -5869,6 +6004,7 @@ final class PaneCardView: NSView {
         if let headerView {
             container.addArrangedSubview(headerView)
             headerView.widthAnchor.constraint(equalTo: container.widthAnchor).isActive = true
+
         }
         if statusText != nil {
             container.addArrangedSubview(statusLabel)
@@ -5888,7 +6024,12 @@ final class PaneCardView: NSView {
 @MainActor
 final class PaneHeaderView: NSView {
     private let tabStrip = NSStackView()
+    private let tabScrollView = NSScrollView()
     private var paneTabButtons: [PaneTabButton] = []
+    private let inlineAddButton = ChromePillButton()
+    private let pinnedAddButton = ChromePillButton()
+    private var contentTrailingToSuperviewConstraint: NSLayoutConstraint?
+    private var contentTrailingToPinnedConstraint: NSLayoutConstraint?
 
     init(
         paneStack: PaneStack,
@@ -5905,7 +6046,9 @@ final class PaneHeaderView: NSView {
         onPaneTabDragStarted: ((NSView, PaneID, PaneStackID, NSEvent) -> Void)? = nil,
         onPaneTabDragMoved: ((PaneID, PaneStackID, NSEvent) -> Void)? = nil,
         onPaneTabDragEnded: ((PaneID, PaneStackID, NSEvent) -> Void)? = nil,
-        onPaneTabDragCancelled: (() -> Void)? = nil
+        onPaneTabDragCancelled: (() -> Void)? = nil,
+        onRenamePaneTab: ((PaneID, String) -> Void)? = nil,
+        onClearPaneTabAlias: ((PaneID) -> Void)? = nil
     ) {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
@@ -5915,15 +6058,17 @@ final class PaneHeaderView: NSView {
         let content = NSStackView()
         content.orientation = .horizontal
         content.alignment = .centerY
-        content.spacing = 6
+        content.spacing = 0
         content.translatesAutoresizingMaskIntoConstraints = false
 
         tabStrip.orientation = .horizontal
         tabStrip.alignment = .centerY
         tabStrip.spacing = 6
+        tabStrip.distribution = .fill
+        tabStrip.translatesAutoresizingMaskIntoConstraints = false
         tabStrip.identifier = NSUserInterfaceItemIdentifier("pane-tab-strip-\(paneStack.id.rawValue)")
         tabStrip.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        tabStrip.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        tabStrip.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         for pane in paneStack.panes {
             let button = PaneTabButton(
@@ -5943,6 +6088,12 @@ final class PaneHeaderView: NSView {
             )
             button.onPress = { onSelectPaneTab(pane.id) }
             button.contextMenuProvider = { contextMenuProvider(pane) }
+            if let onRenamePaneTab {
+                button.onRename = { newName in onRenamePaneTab(pane.id, newName) }
+            }
+            if let onClearPaneTabAlias {
+                button.onClearAlias = { onClearPaneTabAlias(pane.id) }
+            }
             if onPaneTabDragStarted != nil {
                 button.canStartDrag = { canStartPaneTabDrag(pane.id) }
                 button.onDragStarted = { [weak button] _, event in
@@ -5957,24 +6108,88 @@ final class PaneHeaderView: NSView {
             paneTabButtons.append(button)
         }
 
-        let addButton = ChromePillButton()
-        addButton.configure(symbolName: "plus", accessibilityLabel: "Add pane tab", active: false, theme: theme, compact: true)
-        addButton.identifier = NSUserInterfaceItemIdentifier("pane-tab-add-\(paneStack.id.rawValue)")
-        addButton.onPress = {
+        inlineAddButton.configure(symbolName: "plus", accessibilityLabel: "Add pane tab", active: false, theme: theme, compact: true)
+        inlineAddButton.identifier = NSUserInterfaceItemIdentifier("pane-tab-add-\(paneStack.id.rawValue)")
+        inlineAddButton.onPress = {
             try? onCreatePaneTab()
         }
-        tabStrip.addArrangedSubview(addButton)
+        tabStrip.addArrangedSubview(inlineAddButton)
 
-        content.addArrangedSubview(tabStrip)
-        content.addArrangedSubview(NSView())
+        pinnedAddButton.configure(symbolName: "plus", accessibilityLabel: "Add pane tab", active: false, theme: theme, compact: true)
+        pinnedAddButton.identifier = NSUserInterfaceItemIdentifier("pane-tab-add-pinned-\(paneStack.id.rawValue)")
+        pinnedAddButton.onPress = {
+            try? onCreatePaneTab()
+        }
+        pinnedAddButton.translatesAutoresizingMaskIntoConstraints = false
+        pinnedAddButton.isHidden = true
+
+        tabScrollView.translatesAutoresizingMaskIntoConstraints = false
+        tabScrollView.hasHorizontalScroller = false
+        tabScrollView.hasVerticalScroller = false
+        tabScrollView.autohidesScrollers = true
+        tabScrollView.drawsBackground = false
+        tabScrollView.borderType = .noBorder
+        tabScrollView.horizontalScrollElasticity = .allowed
+        tabScrollView.verticalScrollElasticity = .none
+        tabScrollView.documentView = tabStrip
+        tabScrollView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        tabScrollView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        NSLayoutConstraint.activate([
+            tabStrip.topAnchor.constraint(equalTo: tabScrollView.contentView.topAnchor),
+            tabStrip.bottomAnchor.constraint(equalTo: tabScrollView.contentView.bottomAnchor),
+            tabStrip.leadingAnchor.constraint(equalTo: tabScrollView.contentView.leadingAnchor),
+            tabScrollView.heightAnchor.constraint(equalToConstant: ShellLayoutMetrics.paneHeaderHeight - 1),
+        ])
+
+        content.addArrangedSubview(tabScrollView)
+        addSubview(pinnedAddButton)
         addSubview(content)
+
+        let trailingToSuperview = content.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8)
+        let trailingToPinned = content.trailingAnchor.constraint(equalTo: pinnedAddButton.leadingAnchor, constant: -4)
+        self.contentTrailingToSuperviewConstraint = trailingToSuperview
+        self.contentTrailingToPinnedConstraint = trailingToPinned
 
         NSLayoutConstraint.activate([
             content.topAnchor.constraint(equalTo: topAnchor, constant: 5),
             content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            content.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            trailingToSuperview,
             content.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -5),
+            pinnedAddButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            pinnedAddButton.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
+
+        updateAddButtonMode()
+    }
+
+    func scrollActiveTabToVisible() {
+        guard let activeButton = paneTabButtons.first(where: { $0.isActivePaneTab }) else {
+            return
+        }
+        let targetRect = activeButton.convert(activeButton.bounds, to: tabStrip)
+        tabScrollView.contentView.scrollToVisible(targetRect)
+        tabScrollView.reflectScrolledClipView(tabScrollView.contentView)
+    }
+
+    override func layout() {
+        super.layout()
+        updateAddButtonMode()
+    }
+
+    private func updateAddButtonMode() {
+        guard bounds.width > 0 else {
+            return
+        }
+
+        // Measure using the strip content width while inline add is present.
+        let overflow = tabStrip.fittingSize.width > tabScrollView.contentView.bounds.width + 1
+
+        inlineAddButton.isHidden = overflow
+        pinnedAddButton.isHidden = !overflow
+
+        contentTrailingToSuperviewConstraint?.isActive = !overflow
+        contentTrailingToPinnedConstraint?.isActive = overflow
     }
 
     func insertionIndex(forWindowPoint windowPoint: NSPoint) -> Int {
@@ -6091,7 +6306,7 @@ final class PaneProgressOrbView: NSView {
 }
 
 struct PaneTabTitleFormatter {
-    static let defaultMaximumLength = 44
+    static let defaultMaximumLength = 40
     private static let truncationMarker = "..."
 
     static func displayTitle(
@@ -6140,7 +6355,7 @@ private extension WorkspaceShellTheme {
 }
 
 @MainActor
-private final class PaneTabButton: NSControl {
+private final class PaneTabButton: NSControl, NSTextFieldDelegate {
     var onPress: (() -> Void)?
     var onDragStarted: ((PaneTabButton, NSEvent) -> Void)?
     var onDragMoved: ((PaneTabButton, NSEvent) -> Void)?
@@ -6152,22 +6367,32 @@ private final class PaneTabButton: NSControl {
             menu = contextMenuProvider?()
         }
     }
+    /// Called when the user commits a non-empty inline rename.
+    var onRename: ((String) -> Void)?
+    /// Called when the user commits an empty inline rename (clears alias).
+    var onClearAlias: (() -> Void)?
 
+    private var isRenaming = false
+    private var originalTitle: String = ""
+    private weak var previousFirstResponder: NSResponder?
     private let titleLabel = NSTextField(labelWithString: "")
     private let iconLabel = NSTextField(labelWithString: "")
     private let iconImageView = NSImageView()
     private let progressOrb = PaneProgressOrbView()
     private let closeButton = ChromePillButton()
-    private let contentInsets = NSEdgeInsets(top: 2, left: 6, bottom: 2, right: 6)
+     private let contentInsets = NSEdgeInsets(top: 0, left: 5, bottom: 0, right: 3)
     private let interItemSpacing = CGFloat(4)
     private let iconSpacing = CGFloat(4)
     private let symbolSide = CGFloat(12)
     private let showsClose: Bool
     private let currentTheme: WorkspaceShellTheme
-    private let isActiveTab: Bool
+    private var isActiveTab: Bool
+    private let topBorderLayer = CALayer()
     private let renderedIcon: OmuxRenderedIcon?
     private let iconSymbolImage: NSImage?
     private let progress: PaneProgress?
+    private let fullDisplayTitle: String
+    var isActivePaneTab: Bool { isActiveTab }
 
     init(
         pane: Pane,
@@ -6184,16 +6409,17 @@ private final class PaneTabButton: NSControl {
         self.renderedIcon = icon
         self.iconSymbolImage = icon?.symbolImage()
         self.progress = progress
+        self.fullDisplayTitle = pane.displayTitle
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
-        layer?.masksToBounds = true
-        layer?.cornerRadius = 3
+        topBorderLayer.zPosition = 1
+        layer?.addSublayer(topBorderLayer)
         identifier = NSUserInterfaceItemIdentifier("pane-tab-\(pane.id.rawValue)")
-        setAccessibilityLabel(icon.map { "\($0.accessibilityLabel), \(pane.title)" } ?? pane.title)
-        toolTip = pane.title
+        setAccessibilityLabel(icon.map { "\($0.accessibilityLabel), \(fullDisplayTitle)" } ?? fullDisplayTitle)
+        toolTip = fullDisplayTitle
         setContentHuggingPriority(.defaultLow, for: .horizontal)
-        setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
 
         progressOrb.identifier = NSUserInterfaceItemIdentifier("pane-tab-progress-\(pane.id.rawValue)")
         progressOrb.configure(progress: progress, theme: theme)
@@ -6205,34 +6431,34 @@ private final class PaneTabButton: NSControl {
         iconLabel.alignment = .center
         iconLabel.stringValue = icon?.text ?? ""
         iconLabel.toolTip = icon?.accessibilityLabel
-        iconLabel.textColor = icon.flatMap { theme.iconColor(for: $0, selected: active) }
-            ?? (active ? theme.shell.selectedText : theme.shell.textSecondary)
+         iconLabel.textColor = icon.flatMap { theme.iconColor(for: $0, selected: active) }
+            ?? (active ? theme.shell.textPrimary : theme.shell.textSecondary)
         iconLabel.isHidden = icon == nil || iconSymbolImage != nil
         addSubview(iconLabel)
 
         iconImageView.translatesAutoresizingMaskIntoConstraints = false
         iconImageView.symbolConfiguration = .init(pointSize: 11, weight: active ? .semibold : .medium)
         iconImageView.image = iconSymbolImage
-        iconImageView.contentTintColor = icon.flatMap { theme.iconColor(for: $0, selected: active) }
-            ?? (active ? theme.shell.selectedText : theme.shell.textSecondary)
+         iconImageView.contentTintColor = icon.flatMap { theme.iconColor(for: $0, selected: active) }
+            ?? (active ? theme.shell.textPrimary : theme.shell.textSecondary)
         iconImageView.toolTip = icon?.accessibilityLabel
         iconImageView.isHidden = iconSymbolImage == nil
         addSubview(iconImageView)
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.font = .systemFont(ofSize: 11, weight: active ? .semibold : .medium)
-        titleLabel.lineBreakMode = .byClipping
-        titleLabel.stringValue = PaneTabTitleFormatter.displayTitle(pane.title)
-        titleLabel.toolTip = pane.title
-        titleLabel.textColor = active ? theme.shell.selectedText : theme.shell.textSecondary
+         titleLabel.lineBreakMode = .byClipping
+        titleLabel.stringValue = PaneTabTitleFormatter.displayTitle(fullDisplayTitle)
+        titleLabel.toolTip = fullDisplayTitle
+         titleLabel.textColor = active ? theme.shell.textPrimary : theme.shell.textSecondary
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         addSubview(titleLabel)
 
         if showsClose {
             closeButton.configure(
                 symbolName: "xmark",
-                accessibilityLabel: "Close \(pane.title)",
-                active: active,
+                accessibilityLabel: "Close \(fullDisplayTitle)",
+                active: false,
                 theme: theme,
                 compact: true
             )
@@ -6269,21 +6495,23 @@ private final class PaneTabButton: NSControl {
         let iconWidth = renderedIcon == nil ? 0 : iconSize.width + iconSpacing
         return NSSize(
             width: progressWidth + iconWidth + titleSize.width + closeWidth + contentInsets.left + contentInsets.right,
-            height: max(titleSize.height, iconSize.height, closeSize.height) + contentInsets.top + contentInsets.bottom
+            height: ShellLayoutMetrics.paneHeaderHeight
         )
     }
 
     override func layout() {
         super.layout()
-        let contentBounds = bounds.insetBy(
-            dx: contentInsets.left,
-            dy: contentInsets.top
-        )
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        topBorderLayer.frame = CGRect(x: 0, y: 0, width: bounds.width, height: 2)
+        CATransaction.commit()
+        let contentLeft = contentInsets.left
+        let contentRight = contentInsets.right
 
-        var titleMinX = contentBounds.minX
+        var titleMinX = contentLeft
         if progress != nil {
             progressOrb.frame = NSRect(
-                x: contentBounds.minX,
+                x: contentLeft,
                 y: round((bounds.height - PaneProgressOrbView.side) / 2),
                 width: PaneProgressOrbView.side,
                 height: PaneProgressOrbView.side
@@ -6321,26 +6549,28 @@ private final class PaneTabButton: NSControl {
             iconImageView.frame = .zero
         }
 
+        let titleH = titleLabel.intrinsicContentSize.height
+        let titleY = round((bounds.height - titleH) / 2)
         if showsClose {
             let closeSize = closeButton.intrinsicContentSize
             closeButton.frame = NSRect(
-                x: bounds.width - contentInsets.right - closeSize.width,
+                x: bounds.width - contentRight - closeSize.width,
                 y: round((bounds.height - closeSize.height) / 2),
                 width: closeSize.width,
                 height: closeSize.height
             )
             titleLabel.frame = NSRect(
                 x: titleMinX,
-                y: contentBounds.minY,
+                y: titleY,
                 width: max(0, closeButton.frame.minX - interItemSpacing - titleMinX),
-                height: contentBounds.height
+                height: titleH
             )
         } else {
             titleLabel.frame = NSRect(
                 x: titleMinX,
-                y: contentBounds.minY,
-                width: max(0, contentBounds.maxX - titleMinX),
-                height: contentBounds.height
+                y: titleY,
+                width: max(0, bounds.width - contentRight - titleMinX),
+                height: titleH
             )
             closeButton.frame = .zero
         }
@@ -6348,6 +6578,12 @@ private final class PaneTabButton: NSControl {
 
     override func mouseDown(with event: NSEvent) {
         guard isEnabled else { return }
+
+        // Double-click triggers rename regardless of drag capability.
+        if event.clickCount == 2 {
+            beginInlineRename()
+            return
+        }
 
         guard onDragStarted != nil || onDragMoved != nil || onDragEnded != nil else {
             onPress?()
@@ -6357,6 +6593,7 @@ private final class PaneTabButton: NSControl {
         let initialLocation = convert(event.locationInWindow, from: nil)
         var didStartDragging = false
 
+        // Once a drag starts, tracking must continue until mouse-up so drag cleanup always runs.
         while let nextEvent = window?.nextEvent(
             matching: [.leftMouseDragged, .leftMouseUp, .keyDown],
             until: .distantFuture,
@@ -6375,9 +6612,7 @@ private final class PaneTabButton: NSControl {
                 let delta = hypot(location.x - initialLocation.x, location.y - initialLocation.y)
                 guard delta >= 4 else { continue }
                 if !didStartDragging {
-                    guard canStartDrag?() ?? true else {
-                        continue
-                    }
+                    guard canStartDrag?() ?? true else { continue }
                     didStartDragging = true
                     onDragStarted?(self, nextEvent)
                 }
@@ -6392,6 +6627,7 @@ private final class PaneTabButton: NSControl {
                 return
 
             default:
+                NSApp.postEvent(nextEvent, atStart: false)
                 return
             }
         }
@@ -6409,16 +6645,92 @@ private final class PaneTabButton: NSControl {
         }
     }
 
+    func beginInlineRename() {
+        guard !isRenaming else { return }
+        isRenaming = true
+        originalTitle = fullDisplayTitle
+        previousFirstResponder = window?.firstResponder
+        titleLabel.isEditable = true
+        titleLabel.isSelectable = true
+        titleLabel.isBezeled = false
+        titleLabel.focusRingType = .none
+        titleLabel.drawsBackground = false
+        titleLabel.delegate = self
+        window?.makeFirstResponder(titleLabel)
+        titleLabel.currentEditor()?.selectAll(nil)
+    }
+
+    private func commitInlineRename() {
+        guard isRenaming else { return }
+        let newName = titleLabel.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        endInlineRename()
+        if newName.isEmpty {
+            onClearAlias?()
+        } else {
+            onRename?(newName)
+        }
+    }
+
+    private func cancelInlineRename() {
+        guard isRenaming else { return }
+        titleLabel.stringValue = originalTitle
+        endInlineRename()
+    }
+
+    private func endInlineRename() {
+        guard isRenaming else { return }
+        isRenaming = false
+        titleLabel.isEditable = false
+        titleLabel.isSelectable = false
+        titleLabel.delegate = nil
+        window?.makeFirstResponder(previousFirstResponder)
+        previousFirstResponder = nil
+    }
+
+    nonisolated func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        MainActor.assumeIsolated {
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                commitInlineRename()
+                return true
+            }
+            if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+                cancelInlineRename()
+                return true
+            }
+            return false
+        }
+    }
+
+    nonisolated func controlTextDidEndEditing(_ obj: Notification) {
+        MainActor.assumeIsolated {
+            if isRenaming {
+                commitInlineRename()
+            }
+        }
+    }
+
+    func setActive(_ active: Bool) {
+        guard active != isActiveTab else { return }
+        isActiveTab = active
+        titleLabel.font = .systemFont(ofSize: 11, weight: active ? .semibold : .medium)
+        updateVisualState()
+    }
+
     private func updateVisualState() {
-        titleLabel.textColor = isActiveTab ? currentTheme.shell.selectedText : currentTheme.shell.textSecondary
+        titleLabel.textColor = isActiveTab ? currentTheme.shell.textPrimary : currentTheme.shell.textSecondary
         let iconColor = renderedIcon.flatMap { currentTheme.iconColor(for: $0, selected: isActiveTab) }
             ?? titleLabel.textColor
         iconLabel.textColor = iconColor
         iconImageView.contentTintColor = iconColor
-        layer?.backgroundColor = (isActiveTab ? currentTheme.shell.selection : NSColor.clear).cgColor
-        layer?.borderWidth = 0
-        layer?.borderColor = nil
-        alphaValue = isEnabled ? 1 : 0.4
+        if isActiveTab {
+            layer?.backgroundColor = currentTheme.shell.paneCardBackground.cgColor
+            topBorderLayer.backgroundColor = currentTheme.shell.accent.cgColor
+        } else {
+            layer?.backgroundColor = NSColor.clear.cgColor
+            topBorderLayer.backgroundColor = currentTheme.shell.border.cgColor
+        }
+        topBorderLayer.isHidden = false
+        alphaValue = isEnabled ? (isActiveTab ? 1.0 : 0.6) : 0.4
     }
 }
 

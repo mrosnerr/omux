@@ -626,6 +626,36 @@ final class OpenMUXControlPlaneService: @unchecked Sendable {
                 id: request.id,
                 error: JSONRPCError(code: -32600, message: "terminal.events requires a streaming client")
             )
+        case .getPaneAlias:
+            guard let paneIDString = request.params?.objectValue?["paneID"]?.stringValue else {
+                return JSONRPCResponse(id: request.id, error: JSONRPCError(code: 400, message: "missing paneID"))
+            }
+            let paneID = PaneID(rawValue: paneIDString)
+            guard let pane = controller.pane(paneID) else {
+                return JSONRPCResponse(id: request.id, error: JSONRPCError(code: 404, message: "pane not found"))
+            }
+            return JSONRPCResponse(id: request.id, result: pane.userAlias.map { .string($0) } ?? .null)
+        case .setPaneAlias:
+            guard let params = request.params?.objectValue,
+                  let paneIDString = params["paneID"]?.stringValue,
+                  let alias = params["alias"]?.stringValue
+            else {
+                return JSONRPCResponse(id: request.id, error: JSONRPCError(code: 400, message: "missing paneID or alias"))
+            }
+            let paneID = PaneID(rawValue: paneIDString)
+            guard let updated = try controller.setPaneAlias(paneID, to: alias) else {
+                return JSONRPCResponse(id: request.id, error: JSONRPCError(code: 404, message: "pane not found"))
+            }
+            return JSONRPCResponse(id: request.id, result: .object(updated.rpcObject))
+        case .clearPaneAlias:
+            guard let paneIDString = request.params?.objectValue?["paneID"]?.stringValue else {
+                return JSONRPCResponse(id: request.id, error: JSONRPCError(code: 400, message: "missing paneID"))
+            }
+            let paneID = PaneID(rawValue: paneIDString)
+            guard let updated = try controller.clearPaneAlias(paneID) else {
+                return JSONRPCResponse(id: request.id, error: JSONRPCError(code: 404, message: "pane not found"))
+            }
+            return JSONRPCResponse(id: request.id, result: .object(updated.rpcObject))
         case .none:
             return JSONRPCResponse(id: request.id, error: JSONRPCError(code: -32601, message: "method not found"))
         }
@@ -911,6 +941,8 @@ private extension Workspace {
                     "pluginID": pane.extensionPane.map { .string($0.pluginID) } ?? .null,
                     "presentation": pane.extensionPane.map { .string($0.presentationStyle.rawValue) } ?? .null,
                     "title": .string(pane.title),
+                    "userAlias": pane.userAlias.map { .string($0) } ?? .null,
+                    "hasUserAlias": .bool(pane.hasUserAlias),
                     "progress": pane.terminalState.progress.rpcValue,
                     "focused": .bool(focusedFloatingPaneModalID == nil && focusedTabID == tab.id && tab.focusedPaneID == pane.id),
                 ]
@@ -929,6 +961,8 @@ private extension Workspace {
                     "pluginID": pane.extensionPane.map { .string($0.pluginID) } ?? .null,
                     "presentation": pane.extensionPane.map { .string($0.presentationStyle.rawValue) } ?? .null,
                     "title": .string(pane.title),
+                    "userAlias": pane.userAlias.map { .string($0) } ?? .null,
+                    "hasUserAlias": .bool(pane.hasUserAlias),
                     "progress": pane.terminalState.progress.rpcValue,
                     "focused": .bool(focusedFloatingPaneModalID == modal.id && modal.paneStack.focusedPaneID == pane.id),
                 ]
@@ -1014,6 +1048,8 @@ private extension Pane {
             "pluginID": extensionPane.map { .string($0.pluginID) } ?? .null,
             "presentation": extensionPane.map { .string($0.presentationStyle.rawValue) } ?? .null,
             "title": .string(title),
+            "userAlias": userAlias.map { .string($0) } ?? .null,
+            "hasUserAlias": .bool(hasUserAlias),
             "workingDirectory": terminalSession.map { .string($0.workingDirectory) } ?? .null,
             "reportedWorkingDirectory": terminalState.reportedWorkingDirectory.map(RPCValue.string) ?? .null,
             "progress": terminalState.progress.rpcValue,

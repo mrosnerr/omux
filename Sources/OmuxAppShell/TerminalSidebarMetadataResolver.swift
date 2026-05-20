@@ -15,6 +15,26 @@ final class TerminalSidebarMetadataResolver {
     private var gitInfoByPath: [String: GitInfo?] = [:]
 
     func metadata(for pane: Pane, icon: OmuxSemanticIcon) -> TerminalSidebarMetadata {
+        // When the user has set an alias, always prefer it in the sidebar without
+        // applying the path/branch heuristics — mirrors what the tab strip shows.
+        if let alias = pane.userAlias {
+            guard let session = pane.terminalSession else {
+                return TerminalSidebarMetadata(
+                    icon: icon,
+                    title: alias,
+                    subtitle: pane.extensionPane?.pluginID
+                )
+            }
+
+            let path = pane.terminalState.reportedWorkingDirectory ?? session.workingDirectory
+            let abbreviatedPath = abbreviate(path: path)
+            let gitInfo = resolveGitInfo(for: path)
+            let subtitle = gitInfo.map { info in
+                gitAwareSubtitle(branchName: info.branchName, abbreviatedPath: abbreviatedPath, preferredTitle: alias)
+            } ?? abbreviatedPath
+            return TerminalSidebarMetadata(icon: icon, title: alias, subtitle: subtitle)
+        }
+
         guard let session = pane.terminalSession else {
             return TerminalSidebarMetadata(
                 icon: icon,
