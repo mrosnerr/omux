@@ -71,7 +71,7 @@ Quick install from the latest GitHub Release:
 curl -fsSL https://github.com/finger-gun/omux/releases/latest/download/openmux-install.sh | bash
 ```
 
-This installs `OpenMUX.app` and links the bundled `omux` CLI into the first suitable directory on your `PATH`, or `~/.local/bin` if no preferred path is available.
+This installs `OpenMUX.app` and links the bundled `omux` CLI at `~/.local/bin/omux`.
 
 User docs:
 

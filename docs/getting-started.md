@@ -14,7 +14,7 @@ Fast path:
 curl -fsSL https://github.com/finger-gun/omux/releases/latest/download/openmux-install.sh | bash
 ```
 
-That script downloads the matching `OpenMUX-<version>-macos-unsigned.zip` and `checksums.txt`, verifies the SHA-256 checksum, validates the bundle, and installs `OpenMUX.app` into `/Applications` when writable or `~/Applications` otherwise. It also links the bundled `omux` CLI into the first suitable directory on your `PATH`, or `~/.local/bin` if no preferred path is available. It does not invoke hidden `sudo` or request administrator privileges.
+That script downloads the matching `OpenMUX-<version>-macos-unsigned.zip` and `checksums.txt`, verifies the SHA-256 checksum, validates the bundle, and installs `OpenMUX.app` into `/Applications` when writable or `~/Applications` otherwise. It also links the bundled `omux` CLI at `~/.local/bin/omux`. It does not invoke hidden `sudo` or request administrator privileges.
 
 If you only want to install the app bundle, pass `--no-install-cli`:
 
@@ -53,7 +53,7 @@ You can also install it from Terminal:
 /Applications/OpenMUX.app/Contents/MacOS/omux install-cli
 ```
 
-If the installer falls back to `~/.local/bin/omux`, make sure `~/.local/bin` is on your shell `PATH`.
+Make sure `~/.local/bin` is on your shell `PATH`.
 
 ## 2.1. Update OpenMUX
 
