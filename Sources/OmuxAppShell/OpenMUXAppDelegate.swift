@@ -41,6 +41,7 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
     private weak var reindexAgentSessionsMenuItem: NSMenuItem?
     private weak var toggleSidebarMenuItem: NSMenuItem?
     private weak var toggleAgentSessionsMenuItem: NSMenuItem?
+    private weak var togglePaneTabBarMenuItem: NSMenuItem?
     private weak var commandPaletteWorkspaceMenuItem: NSMenuItem?
     private weak var commandPaletteCommandMenuItem: NSMenuItem?
     private weak var findInPaneMenuItem: NSMenuItem?
@@ -598,6 +599,11 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         windowController?.toggleSidebarVisibility()
     }
 
+    @objc private func togglePaneTabBarFromMenu(_ sender: Any?) {
+        _ = sender
+        windowController?.togglePaneTabBarVisibility()
+    }
+
     @objc private func toggleAgentSessionsFromMenu(_ sender: Any?) {
         _ = sender
         windowController?.toggleAgentSessionsVisibility()
@@ -1119,6 +1125,14 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         toggleSidebarMenuItem.target = self
         viewMenu.addItem(toggleSidebarMenuItem)
 
+        let togglePaneTabBarMenuItem = NSMenuItem(
+            title: "Toggle Pane Tab Bar",
+            action: #selector(togglePaneTabBarFromMenu(_:)),
+            keyEquivalent: ""
+        )
+        togglePaneTabBarMenuItem.target = self
+        viewMenu.addItem(togglePaneTabBarMenuItem)
+
         let toggleAgentSessionsMenuItem = NSMenuItem(
             title: "Toggle Agent Sessions",
             action: #selector(toggleAgentSessionsFromMenu(_:)),
@@ -1156,6 +1170,7 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         self.deleteWorkspaceMenuItem = deleteWorkspaceMenuItem
         self.toggleSidebarMenuItem = toggleSidebarMenuItem
         self.toggleAgentSessionsMenuItem = toggleAgentSessionsMenuItem
+        self.togglePaneTabBarMenuItem = togglePaneTabBarMenuItem
         self.commandPaletteWorkspaceMenuItem = commandPaletteWorkspaceMenuItem
         self.commandPaletteCommandMenuItem = commandPaletteCommandMenuItem
         self.findInPaneMenuItem = findInPaneMenuItem
@@ -1210,6 +1225,7 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         searchAgentSessionsMenuItem?.isEnabled = hasWorkspace && agentSessionsMenuVisible
         reindexAgentSessionsMenuItem?.isEnabled = hasWorkspace && agentSessionsMenuVisible && vaultStore != nil
         toggleSidebarMenuItem?.isEnabled = hasWorkspace
+        togglePaneTabBarMenuItem?.isEnabled = hasWorkspace
         toggleAgentSessionsMenuItem?.isHidden = !agentSessionsMenuVisible
         toggleAgentSessionsMenuItem?.isEnabled = hasWorkspace && agentSessionsMenuVisible
         commandPaletteWorkspaceMenuItem?.isEnabled = hasWorkspace
@@ -1244,6 +1260,7 @@ public final class OpenMUXAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         setShortcut(for: deleteWorkspaceMenuItem, action: .workspaceClose)
         setShortcut(for: toggleSidebarMenuItem, action: .sidebarToggle)
         setShortcut(for: toggleAgentSessionsMenuItem, action: .agentSessionsToggle)
+        setShortcut(for: togglePaneTabBarMenuItem, action: .paneTabBarToggle)
         setShortcut(for: commandPaletteWorkspaceMenuItem, action: .commandPaletteWorkspace)
         setShortcut(for: commandPaletteCommandMenuItem, action: .commandPaletteCommand)
         setShortcut(for: findInPaneMenuItem, action: .paneFind)

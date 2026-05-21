@@ -25,6 +25,15 @@ final class OmuxAppShellTests: XCTestCase {
         }
     }
 
+    @MainActor
+    private final class InMemoryPaneTabBarVisibilityStore: PaneTabBarVisibilityStoring {
+        var isPaneTabBarVisible: Bool
+
+        init(isPaneTabBarVisible: Bool = true) {
+            self.isPaneTabBarVisible = isPaneTabBarVisible
+        }
+    }
+
     private static func requestControlMethod(
         _ method: ControlMethod,
         socketPath: String,
@@ -127,6 +136,11 @@ final class OmuxAppShellTests: XCTestCase {
             modifiers: [.command]
         ) ?? false)
         XCTAssertTrue(viewMenu?.items.containsShortcut(
+            title: "Toggle Pane Tab Bar",
+            key: "t",
+            modifiers: [.command, .shift]
+        ) ?? false)
+        XCTAssertTrue(viewMenu?.items.containsShortcut(
             title: "Command Palette",
             key: "p",
             modifiers: [.command]
@@ -138,10 +152,6 @@ final class OmuxAppShellTests: XCTestCase {
         ) ?? false)
         XCTAssertFalse(viewMenu?.items.containsShortcut(
             title: "New Pane",
-            key: "t",
-            modifiers: [.command, .shift]
-        ) ?? true)
-        XCTAssertFalse(viewMenu?.items.containsShortcut(
             key: "t",
             modifiers: [.command, .shift]
         ) ?? true)
@@ -4489,6 +4499,32 @@ final class OmuxAppShellTests: XCTestCase {
         windowController.toggleSidebarVisibility()
         XCTAssertTrue(store.isSidebarVisible)
         XCTAssertFalse(sidebar.isHidden)
+    }
+
+    @MainActor
+    func testWorkspaceWindowRestoresPersistedPaneTabBarVisibility() throws {
+        let controller = WorkspaceController(
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
+            hookRunner: ExternalHookRunner()
+        )
+
+        let workspace = try controller.openWorkspace(at: "/tmp")
+        let store = InMemoryPaneTabBarVisibilityStore(isPaneTabBarVisible: false)
+        let windowController = WorkspaceWindowController(
+            workspace: workspace,
+            controller: controller,
+            paneTabBarVisibilityStore: store
+        )
+        let rootView = try XCTUnwrap(windowController.window?.contentViewController?.view)
+        rootView.layoutSubtreeIfNeeded()
+
+        let header = findView(ofType: PaneHeaderView.self, in: rootView)
+        XCTAssertNotNil(header, "Header view should exist even when hidden")
+        XCTAssertTrue(header?.isHidden ?? false)
+
+        windowController.togglePaneTabBarVisibility()
+        XCTAssertTrue(store.isPaneTabBarVisible)
+        XCTAssertFalse(header?.isHidden ?? true)
     }
 
     func testBuiltInThemesIncludeDefaultAndCuratedPresets() {

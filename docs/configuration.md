@@ -84,6 +84,7 @@ plugins = ["https://github.com/finger-gun/omux-plugins"]
 "cmd+8" = "workspace.focus-8"
 "cmd+9" = "workspace.focus-9"
 "cmd+b" = "sidebar.toggle"
+"cmd+shift+t" = "pane-tab-bar.toggle"
 "cmd+d" = "pane.split-right"
 "cmd+shift+d" = "pane.split-down"
 "cmd+shift+w" = "pane.remove"
@@ -498,6 +499,7 @@ Supported action identifiers:
 | `workspace.move-down` | Move the active workspace down. |
 | `workspace.focus-1` ... `workspace.focus-9` | Focus a workspace by visible order. |
 | `sidebar.toggle` | Toggle the workspace column. |
+| `pane-tab-bar.toggle` | Toggle the pane tab bar. |
 | `pane.split-right` | Split the focused pane to the right. |
 | `pane.split-down` | Split the focused pane downward. |
 | `pane.remove` | Remove the active pane. |

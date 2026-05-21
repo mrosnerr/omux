@@ -1,0 +1,12 @@
+{
+  "id": "action:pane-tab-bar.toggle",
+  "title": "Toggle Pane Tab Bar",
+  "subtitle": "Show or hide the pane tab bar",
+  "category": "action",
+  "matchText": "Toggle Pane Tab Bar Show or hide the pane tab bar tabs header strip",
+  "aliases": ["tab bar", "pane tabs", "tab strip"],
+  "requiresArguments": false,
+  "hasSafeDefaultTarget": true,
+  "disabledReason": "No active workspace",
+  "command": { "kind": "action", "target": "pane-tab-bar.toggle" }
+}

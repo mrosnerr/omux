@@ -80,6 +80,7 @@ final class WorkspaceWindowController: NSWindowController {
         vaultStore: VaultStore? = nil,
         vaultConfiguration: VaultConfiguration = VaultConfiguration(enabled: false),
         sidebarVisibilityStore: any WorkspaceSidebarVisibilityStoring = WorkspaceSidebarVisibilityStore.shared,
+        paneTabBarVisibilityStore: any PaneTabBarVisibilityStoring = PaneTabBarVisibilityStore.shared,
         onClosePaneTab: (@MainActor (PaneID) -> Void)? = nil,
         onExtensionPaneAction: @escaping @MainActor (ExtensionPaneActionRequest) -> Void = { _ in }
     ) {
@@ -92,6 +93,7 @@ final class WorkspaceWindowController: NSWindowController {
             vaultStore: vaultStore,
             vaultConfiguration: vaultConfiguration,
             sidebarVisibilityStore: sidebarVisibilityStore,
+            paneTabBarVisibilityStore: paneTabBarVisibilityStore,
             onClosePaneTab: onClosePaneTab ?? { [controller] paneID in
                 _ = try? controller.closePane(paneID: paneID)
             },
@@ -154,6 +156,10 @@ final class WorkspaceWindowController: NSWindowController {
 
     func toggleSidebarVisibility() {
         rootViewController.toggleSidebarVisibility()
+    }
+
+    func togglePaneTabBarVisibility() {
+        rootViewController.togglePaneTabBarVisibility()
     }
 
     func setAgentSessionsVisibility(_ isVisible: Bool) {
@@ -225,6 +231,7 @@ final class WorkspaceShellViewController: NSViewController {
     private let canvasView = WorkspaceCanvasView()
     private let shellOverlayHostView = ShellOverlayHostView()
     private let sidebarVisibilityStore: any WorkspaceSidebarVisibilityStoring
+    private let paneTabBarVisibilityStore: any PaneTabBarVisibilityStoring
     private var sidebarWidthConstraint: NSLayoutConstraint?
     private var vaultSidebarWidthConstraint: NSLayoutConstraint?
     private var mainColumnLeadingConstraint: NSLayoutConstraint?
@@ -235,6 +242,7 @@ final class WorkspaceShellViewController: NSViewController {
     private var currentIcons: OmuxConfigUI.Icons
     private var isSidebarVisible: Bool
     private var applicationIsActive: Bool = NSApplication.shared.isActive
+    private var isPaneTabBarVisible: Bool
     private var windowIsKey: Bool = false
     private var focusRestoreGeneration: UInt = 0
     private var terminalIconRefreshTimer: Timer?
@@ -279,6 +287,7 @@ final class WorkspaceShellViewController: NSViewController {
         vaultStore: VaultStore?,
         vaultConfiguration: VaultConfiguration,
         sidebarVisibilityStore: any WorkspaceSidebarVisibilityStoring,
+        paneTabBarVisibilityStore: any PaneTabBarVisibilityStoring = PaneTabBarVisibilityStore.shared,
         onClosePaneTab: @escaping @MainActor (PaneID) -> Void,
         onExtensionPaneAction: @escaping @MainActor (ExtensionPaneActionRequest) -> Void
     ) {
@@ -290,6 +299,8 @@ final class WorkspaceShellViewController: NSViewController {
         self.vaultConfiguration = vaultConfiguration
         self.sidebarVisibilityStore = sidebarVisibilityStore
         self.isSidebarVisible = sidebarVisibilityStore.isSidebarVisible
+        self.paneTabBarVisibilityStore = paneTabBarVisibilityStore
+        self.isPaneTabBarVisible = paneTabBarVisibilityStore.isPaneTabBarVisible
         self.onClosePaneTab = onClosePaneTab
         self.onExtensionPaneAction = onExtensionPaneAction
         super.init(nibName: nil, bundle: nil)
@@ -693,6 +704,9 @@ final class WorkspaceShellViewController: NSViewController {
             reconciliationMetrics.rebuiltHostViews = workspace.focusedTab?.paneStacks.count ?? 0
         }
 
+        if !isPaneTabBarVisible {
+            applyPaneTabBarVisibility(in: canvasView)
+        }
         logReconciliationMetricsIfNeeded(reconciliationMetrics)
         renderedIconKindByPaneID = iconKindSignature(
             for: workspace,
@@ -837,6 +851,12 @@ final class WorkspaceShellViewController: NSViewController {
         isSidebarVisible.toggle()
         sidebarVisibilityStore.isSidebarVisible = isSidebarVisible
         applySidebarVisibility()
+    }
+
+    func togglePaneTabBarVisibility() {
+        isPaneTabBarVisible.toggle()
+        paneTabBarVisibilityStore.isPaneTabBarVisible = isPaneTabBarVisible
+        applyPaneTabBarVisibility(in: canvasView)
     }
 
     private func reloadVaultSessions(reset: Bool) {
@@ -1151,6 +1171,16 @@ final class WorkspaceShellViewController: NSViewController {
         sidebarWidthConstraint?.constant = isSidebarVisible ? ShellLayoutMetrics.sidebarWidth : 0
         mainColumnLeadingConstraint?.constant = isSidebarVisible ? ShellLayoutMetrics.interRegionSpacing : 0
         view.layoutSubtreeIfNeeded()
+    }
+
+    private func applyPaneTabBarVisibility(in view: NSView) {
+        if let stackView = view as? PaneStackView {
+            stackView.setHeaderHidden(!isPaneTabBarVisible)
+            return
+        }
+        for subview in view.subviews {
+            applyPaneTabBarVisibility(in: subview)
+        }
     }
 
     @objc private func toggleVaultSidebarPressed() {
@@ -1653,6 +1683,10 @@ final class WorkspaceShellViewController: NSViewController {
             }
             if result.invocationTarget == .action(.agentSessionsToggle) {
                 toggleVaultSidebar()
+                return .invoked
+            }
+            if result.invocationTarget == .action(.paneTabBarToggle) {
+                togglePaneTabBarVisibility()
                 return .invoked
             }
             if result.invocationTarget == .action(.paneFind) {
@@ -5755,6 +5789,13 @@ final class PaneStackView: NSView {
 
     var paneStackID: PaneStackID?
 
+    private var isHeaderHidden: Bool = false
+
+    func setHeaderHidden(_ hidden: Bool) {
+        isHeaderHidden = hidden
+        headerView?.isHidden = hidden
+    }
+
     init(
         paneStack: PaneStack,
         focusedPaneID: PaneID,
@@ -5958,6 +5999,7 @@ final class PaneStackView: NSView {
             windowIsKey: windowIsKey,
             inactiveOpacity: inactiveOpacity
         )
+        headerView?.isHidden = isHeaderHidden
     }
 
     func setSplitPreview(_ direction: PaneSplitDropDirection, theme: WorkspaceShellTheme) {
