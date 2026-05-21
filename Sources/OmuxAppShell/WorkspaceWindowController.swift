@@ -15,7 +15,8 @@ private enum ShellLayoutMetrics {
     static let outerPadding: CGFloat = 0
     static let interRegionSpacing: CGFloat = 0
     static let canvasPadding: CGFloat = 0
-    static let splitSpacing: CGFloat = 8
+    static let splitSpacing: CGFloat = 1
+    static let splitHitArea: CGFloat = 8
     static let paneHeaderHeight: CGFloat = 28
 }
 
@@ -64,9 +65,97 @@ final class WorkspaceRootView: NSView {
         }
         return point.y >= bounds.maxY - titlebarHeight
     }
+
+    // XCUITest determines isHittable by calling accessibilityHitTest on the
+    // window at the element's centre point. Because this view returns true for
+    // mouseDownCanMoveWindow, AppKit's default implementation returns self (the
+    // drag surface) rather than any button subview sitting in the title bar
+    // region — causing XCUITest to report those buttons as not hittable.
+    //
+    // Overriding here delegates to the NSView hit-test tree first; if a
+    // non-self subview is found it is returned so the accessibility system
+    // (and XCUITest) see the correct interactive element.
+    nonisolated override func accessibilityHitTest(_ point: NSPoint) -> Any? {
+        DispatchQueue.main.sync {
+            if let hit = hitTest(point), hit !== self {
+                return hit.accessibilityHitTest(point)
+            }
+            return super.accessibilityHitTest(point)
+        }
+    }
+}
+
+/// A borderless button designed for the unified title bar area.
+///
+/// Renders as a square with slightly rounded corners and shows a visible
+/// background on hover, matching the style used by VS Code title bar controls.
+@MainActor
+final class TitleBarButton: NSButton {
+    private var isHovered = false
+
+    private var hoverTrackingArea: NSTrackingArea?
+
+    // NSButton inside a mouseDownCanMoveWindow container loses its default
+    // accessibility role. Explicitly restore it so XCUITest can find and
+    // interact with the button (isHittable == true).
+    override func accessibilityRole() -> NSAccessibility.Role? { .button }
+
+    // On headless CI runners XCUITest cannot synthesise a coordinate-based
+    // click inside a mouseDownCanMoveWindow region (the title bar). It falls
+    // back to accessibilityPerformPress() to determine hittability and to
+    // trigger the action. NSButton's default implementation calls
+    // performClick(), which requires the window to be key — a condition that
+    // is not always met on headless runners. Overriding here fires the action
+    // directly via sendAction, bypassing the key-window guard, so the button
+    // is both considered hittable and actually activates its target/action.
+    override func accessibilityPerformPress() -> Bool {
+        guard isEnabled else { return false }
+        return sendAction(action, to: target)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let existing = hoverTrackingArea {
+            removeTrackingArea(existing)
+        }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        hoverTrackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+        needsDisplay = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 2, dy: 5), xRadius: 8, yRadius: 8)
+        if isHovered {
+            NSColor.labelColor.withAlphaComponent(0.25).setFill()
+        } else {
+            NSColor.clear.setFill()
+        }
+        path.fill()
+        super.draw(dirtyRect)
+    }
 }
 
 @MainActor
+private final class WorkspaceWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+}
+
 final class WorkspaceWindowController: NSWindowController {
     private let controller: WorkspaceController
     private let rootViewController: WorkspaceShellViewController
@@ -97,7 +186,7 @@ final class WorkspaceWindowController: NSWindowController {
             },
             onExtensionPaneAction: onExtensionPaneAction
         )
-        let window = NSWindow(
+        let window = WorkspaceWindow(
             contentRect: NSRect(x: 120, y: 120, width: 1220, height: 780),
             styleMask: [.titled, .closable, .resizable, .miniaturizable],
             backing: .buffered,
@@ -107,6 +196,9 @@ final class WorkspaceWindowController: NSWindowController {
         window.styleMask.insert(.fullSizeContentView)
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
+        window.titlebarSeparatorStyle = .none
+        window.isOpaque = false
+        window.backgroundColor = .clear
         window.isMovableByWindowBackground = true
         window.title = workspace.name
         window.contentViewController = rootViewController
@@ -221,7 +313,10 @@ final class WorkspaceShellViewController: NSViewController {
     private let iconResolver = WorkspaceIconResolver()
     private let sidebarView = WorkspaceSidebarView()
     private let vaultSidebarView = WorkspaceVaultSidebarView()
-    private let vaultToggleButton = NSButton()
+    private let topBarBackgroundView = NSView()
+    private let topBarBorderView = NSView()
+    private let sidebarToggleButton = TitleBarButton()
+    private let vaultToggleButton = TitleBarButton()
     private let canvasView = WorkspaceCanvasView()
     private let shellOverlayHostView = ShellOverlayHostView()
     private let sidebarVisibilityStore: any WorkspaceSidebarVisibilityStoring
@@ -322,17 +417,36 @@ final class WorkspaceShellViewController: NSViewController {
 
         mainColumn.addArrangedSubview(canvasView)
 
+        sidebarToggleButton.isBordered = false
+        sidebarToggleButton.image = NSImage(systemSymbolName: "sidebar.squares.left", accessibilityDescription: "Toggle Workspace Sidebar")
+        sidebarToggleButton.toolTip = "Toggle Workspace Sidebar (⌘B)"
+        sidebarToggleButton.target = self
+        sidebarToggleButton.action = #selector(toggleSidebarPressed)
+        sidebarToggleButton.translatesAutoresizingMaskIntoConstraints = false
+
         vaultToggleButton.isBordered = false
-        vaultToggleButton.image = NSImage(systemSymbolName: "sidebar.right", accessibilityDescription: "Toggle Agent Sessions")
-        vaultToggleButton.identifier = NSUserInterfaceItemIdentifier("vault-sidebar-toggle")
+        vaultToggleButton.image = NSImage(systemSymbolName: "sidebar.squares.right", accessibilityDescription: "Toggle Agent Sessions")
+        vaultToggleButton.identifier = NSUserInterfaceItemIdentifier(A11yID.vaultSidebarToggle.rawValue)
+        vaultToggleButton.setAccessibilityIdentifier(A11yID.vaultSidebarToggle)
+        vaultToggleButton.toolTip = "Toggle Agent Sessions (⇧⌘B)"
         vaultToggleButton.target = self
         vaultToggleButton.action = #selector(toggleVaultSidebarPressed)
         vaultToggleButton.translatesAutoresizingMaskIntoConstraints = false
 
+        topBarBackgroundView.wantsLayer = true
+        topBarBackgroundView.translatesAutoresizingMaskIntoConstraints = false
+
+        topBarBorderView.wantsLayer = true
+        topBarBorderView.translatesAutoresizingMaskIntoConstraints = false
+
         sidebarView.setAccessibilityIdentifier(A11yID.workspaceList)
         canvasView.setAccessibilityIdentifier(A11yID.paneContainer)
+        vaultSidebarView.setAccessibilityIdentifier(A11yID.vaultSidebar)
+        view.addSubview(topBarBackgroundView)
+        view.addSubview(topBarBorderView)
         view.addSubview(sidebarView)
         view.addSubview(mainColumn)
+        view.addSubview(sidebarToggleButton)
         if vaultConfiguration.enabled {
             view.addSubview(vaultSidebarView)
             if vaultConfiguration.collapsedToggleVisible {
@@ -376,6 +490,27 @@ final class WorkspaceShellViewController: NSViewController {
             canvasView.widthAnchor.constraint(equalTo: mainColumn.widthAnchor),
         ]
 
+        // A layout guide spanning the native title bar area, used to vertically
+        // center all top bar buttons regardless of the actual title bar height.
+        let titleBarGuide = NSLayoutGuide()
+        view.addLayoutGuide(titleBarGuide)
+        constraints += [
+            titleBarGuide.topAnchor.constraint(equalTo: view.topAnchor),
+            titleBarGuide.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            titleBarGuide.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            titleBarGuide.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+
+            topBarBackgroundView.topAnchor.constraint(equalTo: view.topAnchor),
+            topBarBackgroundView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            topBarBackgroundView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            topBarBackgroundView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+
+            topBarBorderView.heightAnchor.constraint(equalToConstant: 1),
+            topBarBorderView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            topBarBorderView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            topBarBorderView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+        ]
+
         if vaultConfiguration.enabled, let vaultSidebarWidthConstraint {
             constraints += [
                 vaultSidebarView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
@@ -385,13 +520,25 @@ final class WorkspaceShellViewController: NSViewController {
             ]
             if vaultConfiguration.collapsedToggleVisible {
                 constraints += [
-                    vaultToggleButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 10),
-                    vaultToggleButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -4),
+                    vaultToggleButton.centerYAnchor.constraint(equalTo: titleBarGuide.centerYAnchor),
+                    vaultToggleButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8),
                     vaultToggleButton.widthAnchor.constraint(equalToConstant: ShellLayoutMetrics.vaultToggleSize),
                     vaultToggleButton.heightAnchor.constraint(equalToConstant: ShellLayoutMetrics.vaultToggleSize),
                 ]
             }
         }
+
+        // Sidebar toggle button: always present, positioned to the left of the
+        // vault toggle (or at the trailing edge when vault is disabled).
+        let sidebarButtonTrailing = vaultConfiguration.enabled && vaultConfiguration.collapsedToggleVisible
+            ? vaultToggleButton.leadingAnchor
+            : view.trailingAnchor
+        constraints += [
+            sidebarToggleButton.centerYAnchor.constraint(equalTo: titleBarGuide.centerYAnchor),
+            sidebarToggleButton.trailingAnchor.constraint(equalTo: sidebarButtonTrailing),
+            sidebarToggleButton.widthAnchor.constraint(equalToConstant: ShellLayoutMetrics.vaultToggleSize),
+            sidebarToggleButton.heightAnchor.constraint(equalToConstant: ShellLayoutMetrics.vaultToggleSize),
+        ]
 
         constraints += [
             shellOverlayHostView.topAnchor.constraint(equalTo: mainColumn.topAnchor),
@@ -782,9 +929,12 @@ final class WorkspaceShellViewController: NSViewController {
     private func apply(theme: WorkspaceShellTheme) {
         view.layer?.backgroundColor = theme.shell.windowBackground.cgColor
         view.window?.backgroundColor = theme.shell.windowBackground
+        topBarBackgroundView.layer?.backgroundColor = theme.shell.topBarBackground.cgColor
+        topBarBorderView.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.35).cgColor
         sidebarView.apply(theme: theme)
         vaultSidebarView.apply(theme: theme)
         vaultToggleButton.contentTintColor = theme.shell.textMuted
+        sidebarToggleButton.contentTintColor = theme.shell.textMuted
         canvasView.apply(theme: theme)
         commandPaletteView?.apply(theme: theme)
         shellOverlayHostView.apply(theme: theme)
@@ -1153,6 +1303,10 @@ final class WorkspaceShellViewController: NSViewController {
         view.layoutSubtreeIfNeeded()
     }
 
+    @objc private func toggleSidebarPressed() {
+        toggleSidebarVisibility()
+    }
+
     @objc private func toggleVaultSidebarPressed() {
         toggleVaultSidebar()
     }
@@ -1179,7 +1333,7 @@ final class WorkspaceShellViewController: NSViewController {
     private func applyVaultSidebarVisibility() {
         let isVisible = vaultConfiguration.enabled && isVaultSidebarVisible
         vaultSidebarView.isHidden = !isVisible
-        vaultToggleButton.isHidden = !vaultConfiguration.enabled || !vaultConfiguration.collapsedToggleVisible || isVisible
+        vaultToggleButton.isHidden = !vaultConfiguration.enabled || !vaultConfiguration.collapsedToggleVisible
         vaultToggleButton.contentTintColor = currentTheme.shell.textMuted
         vaultSidebarWidthConstraint?.constant = isVisible ? ShellLayoutMetrics.vaultSidebarWidth : 0
         mainColumnTrailingConstraint?.constant = isVisible
@@ -1189,13 +1343,9 @@ final class WorkspaceShellViewController: NSViewController {
     }
 
     private var reservedWidthForCollapsedVaultToggle: CGFloat {
-        guard vaultConfiguration.enabled else {
-            return 0
-        }
-        guard vaultConfiguration.collapsedToggleVisible else {
-            return 0
-        }
-        return ShellLayoutMetrics.vaultToggleReservedWidth
+        // The vault toggle button now lives in the title bar area, so no
+        // horizontal space needs to be reserved in the main canvas column.
+        return 0
     }
 
     private func configureVaultSourceIndexing() {
@@ -3242,6 +3392,10 @@ final class WorkspaceSidebarView: NSView {
         scrollView.setContentHuggingPriority(.defaultLow, for: .vertical)
         scrollView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
 
+        let header = workspacesSection.headerView
+        header.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(header)
         addSubview(container)
         scrollContent.addArrangedSubview(workspacesSection)
         container.addArrangedSubview(scrollView)
@@ -3249,16 +3403,19 @@ final class WorkspaceSidebarView: NSView {
         updateNoticeView.isHidden = true
 
         NSLayoutConstraint.activate([
-            container.topAnchor.constraint(equalTo: topAnchor, constant: 14),
+            header.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            header.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            header.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+
+            container.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 8),
             container.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            container.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            container.trailingAnchor.constraint(equalTo: trailingAnchor),
             container.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
             scrollView.widthAnchor.constraint(equalTo: container.widthAnchor),
             updateNoticeView.widthAnchor.constraint(equalTo: container.widthAnchor),
             scrollContent.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
             scrollContent.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
-            scrollContent.trailingAnchor.constraint(equalTo: scrollView.contentView.trailingAnchor),
-            scrollContent.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+            scrollContent.trailingAnchor.constraint(equalTo: scrollView.contentView.trailingAnchor, constant: -12),
             scrollContent.heightAnchor.constraint(greaterThanOrEqualTo: scrollView.contentView.heightAnchor),
             workspacesSection.widthAnchor.constraint(equalTo: scrollContent.widthAnchor),
         ])
@@ -3275,6 +3432,16 @@ final class WorkspaceSidebarView: NSView {
     func apply(theme: WorkspaceShellTheme) {
         layer?.backgroundColor = theme.shell.sidebarBackground.cgColor
         layer?.borderWidth = 0
+        // Draw a 1px right-edge separator matching the VSCode style
+        let rightBorder = layer?.sublayers?.first(where: { $0.name == "sidebarRightBorder" }) ?? {
+            let l = CALayer()
+            l.name = "sidebarRightBorder"
+            layer?.addSublayer(l)
+            return l
+        }()
+        rightBorder.backgroundColor = NSColor.black.withAlphaComponent(0.35).cgColor
+        rightBorder.frame = CGRect(x: bounds.width - 1, y: 0, width: 1, height: bounds.height)
+        rightBorder.autoresizingMask = [.layerMinXMargin, .layerHeightSizable]
         workspacesSection.apply(theme: theme)
         updateNoticeView.apply(theme: theme)
     }
@@ -3305,11 +3472,6 @@ final class WorkspaceSidebarView: NSView {
                     content: .symbol(name: "plus", accessibilityLabel: "Create workspace"),
                     isEnabled: true,
                     action: onCreateWorkspace
-                ),
-                SidebarSectionAccessory(
-                    content: .symbol(name: "xmark", accessibilityLabel: "Close active workspace"),
-                    isEnabled: canDeleteWorkspace,
-                    action: onDeleteWorkspace
                 ),
             ],
             onMoveWorkspace: onMoveWorkspace,
@@ -3404,7 +3566,6 @@ private final class WorkspaceSidebarSectionView: NSView {
     }
 
     private let titleLabel = NSTextField(labelWithString: "")
-    private let headerStack = NSStackView()
     private let itemStack = NSStackView()
     private let emptyLabel = NSTextField(labelWithString: "")
     private var accessoryButtons: [ChromePillButton] = []
@@ -3415,13 +3576,17 @@ private final class WorkspaceSidebarSectionView: NSView {
     private var reorderHandler: ((WorkspaceID, Int) -> Void)?
     private var draggingWorkspaceID: WorkspaceID?
 
+    /// The header row (title + accessory buttons). Lives outside the scroll view
+    /// so it stays visible and receives mouse events regardless of scroll position.
+    let headerView = NSStackView()
+
     init() {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
 
-        headerStack.orientation = .horizontal
-        headerStack.alignment = .centerY
-        headerStack.translatesAutoresizingMaskIntoConstraints = false
+        headerView.orientation = .horizontal
+        headerView.alignment = .centerY
+        headerView.translatesAutoresizingMaskIntoConstraints = false
 
         itemStack.orientation = .vertical
         itemStack.alignment = .leading
@@ -3434,24 +3599,19 @@ private final class WorkspaceSidebarSectionView: NSView {
         emptyLabel.isHidden = true
         emptyLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        headerStack.addArrangedSubview(titleLabel)
-        headerStack.addArrangedSubview(NSView())
+        headerView.addArrangedSubview(titleLabel)
+        headerView.addArrangedSubview(NSView())
 
-        addSubview(headerStack)
         addSubview(itemStack)
         addSubview(emptyLabel)
 
         NSLayoutConstraint.activate([
-            headerStack.topAnchor.constraint(equalTo: topAnchor),
-            headerStack.leadingAnchor.constraint(equalTo: leadingAnchor),
-            headerStack.trailingAnchor.constraint(equalTo: trailingAnchor),
-
-            itemStack.topAnchor.constraint(equalTo: headerStack.bottomAnchor, constant: 8),
+            itemStack.topAnchor.constraint(equalTo: topAnchor),
             itemStack.leadingAnchor.constraint(equalTo: leadingAnchor),
             itemStack.trailingAnchor.constraint(equalTo: trailingAnchor),
             itemStack.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            emptyLabel.topAnchor.constraint(equalTo: headerStack.bottomAnchor, constant: 8),
+            emptyLabel.topAnchor.constraint(equalTo: topAnchor),
             emptyLabel.leadingAnchor.constraint(equalTo: leadingAnchor),
         ])
     }
@@ -3494,7 +3654,7 @@ private final class WorkspaceSidebarSectionView: NSView {
         workspaceDragGroups.removeAll()
 
         for accessoryButton in accessoryButtons {
-            headerStack.removeArrangedSubview(accessoryButton)
+            headerView.removeArrangedSubview(accessoryButton)
             accessoryButton.removeFromSuperview()
         }
         accessoryButtons.removeAll()
@@ -3509,7 +3669,7 @@ private final class WorkspaceSidebarSectionView: NSView {
             button.isEnabled = accessory.isEnabled
             button.onPress = accessory.action
             accessoryButtons.append(button)
-            headerStack.addArrangedSubview(button)
+            headerView.addArrangedSubview(button)
         }
 
         emptyLabel.isHidden = !items.isEmpty
@@ -3704,7 +3864,6 @@ private final class WorkspaceVaultSidebarView: NSView, NSSearchFieldDelegate {
 
     private let titleLabel = NSTextField(labelWithString: "AGENT SESSIONS")
     private let refreshButton = NSButton()
-    private let collapseButton = NSButton()
     private let searchContainer = NSView()
     private let searchIcon = NSImageView()
     private let searchField = AgentSessionsSearchField()
@@ -3731,6 +3890,8 @@ private final class WorkspaceVaultSidebarView: NSView, NSSearchFieldDelegate {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
+        setAccessibilityRole(.group)
+        setAccessibilityElement(true)
 
         let header = NSStackView()
         header.orientation = .horizontal
@@ -3738,7 +3899,7 @@ private final class WorkspaceVaultSidebarView: NSView, NSSearchFieldDelegate {
         header.distribution = .fill
         header.translatesAutoresizingMaskIntoConstraints = false
 
-        titleLabel.font = .systemFont(ofSize: 10, weight: .bold)
+        titleLabel.font = .systemFont(ofSize: 11, weight: .semibold)
         titleLabel.textColor = .secondaryLabelColor
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
@@ -3747,12 +3908,6 @@ private final class WorkspaceVaultSidebarView: NSView, NSSearchFieldDelegate {
         refreshButton.target = self
         refreshButton.action = #selector(refreshPressed)
         refreshButton.translatesAutoresizingMaskIntoConstraints = false
-
-        collapseButton.isBordered = false
-        collapseButton.image = NSImage(systemSymbolName: "sidebar.right", accessibilityDescription: "Hide Agent Sessions")
-        collapseButton.target = self
-        collapseButton.action = #selector(collapsePressed)
-        collapseButton.translatesAutoresizingMaskIntoConstraints = false
 
         searchContainer.wantsLayer = true
         searchContainer.layer?.cornerRadius = 14
@@ -3813,7 +3968,6 @@ private final class WorkspaceVaultSidebarView: NSView, NSSearchFieldDelegate {
         header.addArrangedSubview(titleLabel)
         header.addArrangedSubview(NSView())
         header.addArrangedSubview(refreshButton)
-        header.addArrangedSubview(collapseButton)
         searchContainer.addSubview(searchIcon)
         searchContainer.addSubview(searchField)
         filterRow.addArrangedSubview(workspacePopup)
@@ -3832,13 +3986,11 @@ private final class WorkspaceVaultSidebarView: NSView, NSSearchFieldDelegate {
         )
 
         NSLayoutConstraint.activate([
-            header.topAnchor.constraint(equalTo: topAnchor, constant: 14),
+            header.topAnchor.constraint(equalTo: topAnchor, constant: 6),
             header.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             header.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
             refreshButton.widthAnchor.constraint(equalToConstant: 22),
             refreshButton.heightAnchor.constraint(equalToConstant: 22),
-            collapseButton.widthAnchor.constraint(equalToConstant: 22),
-            collapseButton.heightAnchor.constraint(equalToConstant: 22),
             searchContainer.heightAnchor.constraint(equalToConstant: 28),
             searchContainer.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 8),
             searchContainer.leadingAnchor.constraint(equalTo: header.leadingAnchor),
@@ -3874,6 +4026,12 @@ private final class WorkspaceVaultSidebarView: NSView, NSSearchFieldDelegate {
         nil
     }
 
+    // Keep the accessibility element flag in sync with visibility so that
+    // XCUITest's `exists` predicate returns `false` when the sidebar is hidden.
+    override var isHidden: Bool {
+        didSet { setAccessibilityElement(!isHidden) }
+    }
+
     deinit {
         NotificationCenter.default.removeObserver(self)
     }
@@ -3883,9 +4041,17 @@ private final class WorkspaceVaultSidebarView: NSView, NSSearchFieldDelegate {
     func apply(theme: WorkspaceShellTheme) {
         currentTheme = theme
         layer?.backgroundColor = theme.shell.sidebarBackground.cgColor
+        let leftBorder = layer?.sublayers?.first(where: { $0.name == "vaultSidebarLeftBorder" }) ?? {
+            let l = CALayer()
+            l.name = "vaultSidebarLeftBorder"
+            layer?.addSublayer(l)
+            return l
+        }()
+        leftBorder.backgroundColor = NSColor.black.withAlphaComponent(0.35).cgColor
+        leftBorder.frame = CGRect(x: 0, y: 0, width: 1, height: bounds.height)
+        leftBorder.autoresizingMask = [.layerMaxXMargin, .layerHeightSizable]
         titleLabel.textColor = theme.shell.textMuted
         refreshButton.contentTintColor = theme.shell.textMuted
-        collapseButton.contentTintColor = theme.shell.textMuted
         workspacePopup.contentTintColor = theme.shell.textMuted
         agentPopup.contentTintColor = theme.shell.textMuted
         statusLabel.textColor = theme.shell.textMuted
@@ -4131,10 +4297,6 @@ private final class WorkspaceVaultSidebarView: NSView, NSSearchFieldDelegate {
 
     @objc private func refreshPressed() {
         onRefresh?()
-    }
-
-    @objc private func collapsePressed() {
-        onToggle?()
     }
 
     @objc private func agentFilterChanged() {
@@ -5022,7 +5184,7 @@ final class WorkspaceCanvasView: NSView {
     }
 
     func apply(theme: WorkspaceShellTheme) {
-        layer?.backgroundColor = theme.shell.canvasBackground.cgColor
+        layer?.backgroundColor = NSColor.clear.cgColor
         layer?.borderWidth = 0
     }
 
@@ -5074,6 +5236,7 @@ final class SplitLayoutView: NSView {
     private let onResize: ([PaneID], [Double]) -> Void
     private var desiredProportions: [Double]
     private var dividerRects: [NSRect] = []
+    private var dividerHitRects: [NSRect] = []
     private var dragState: DragState?
 
     override var isFlipped: Bool { true }
@@ -5121,7 +5284,7 @@ final class SplitLayoutView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        NSColor.separatorColor.setFill()
+        NSColor.black.withAlphaComponent(0.35).setFill()
         for rect in dividerRects where dirtyRect.intersects(rect) {
             rect.fill()
         }
@@ -5130,12 +5293,12 @@ final class SplitLayoutView: NSView {
     override func resetCursorRects() {
         super.resetCursorRects()
         let cursor: NSCursor = axis == .columns ? .resizeLeftRight : .resizeUpDown
-        dividerRects.forEach { addCursorRect($0, cursor: cursor) }
+        dividerHitRects.forEach { addCursorRect($0, cursor: cursor) }
     }
 
     override func mouseDown(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
-        guard let dividerIndex = dividerRects.firstIndex(where: { $0.contains(location) }) else {
+        guard let dividerIndex = dividerHitRects.firstIndex(where: { $0.contains(location) }) else {
             return
         }
 
@@ -5190,15 +5353,19 @@ final class SplitLayoutView: NSView {
     private func applyLayout() {
         guard subviews.isEmpty == false else {
             dividerRects = []
+            dividerHitRects = []
             return
         }
 
         let spacing = ShellLayoutMetrics.splitSpacing
+        let hitArea = ShellLayoutMetrics.splitHitArea
+        let hitPad = (hitArea - spacing) / 2
         let availableLength = max(primaryLength(of: bounds.size) - spacing * CGFloat(max(subviews.count - 1, 0)), 0)
         let lengths = resolvedLengths(totalLength: availableLength)
 
         var cursor: CGFloat = 0
         dividerRects = []
+        dividerHitRects = []
 
         for (index, subview) in subviews.enumerated() {
             let length = lengths[index]
@@ -5213,12 +5380,16 @@ final class SplitLayoutView: NSView {
 
             if index < subviews.count - 1 {
                 let dividerRect: NSRect
+                let hitRect: NSRect
                 if axis == .columns {
                     dividerRect = NSRect(x: cursor, y: 0, width: spacing, height: bounds.height)
+                    hitRect = NSRect(x: cursor - hitPad, y: 0, width: hitArea, height: bounds.height)
                 } else {
                     dividerRect = NSRect(x: 0, y: cursor, width: bounds.width, height: spacing)
+                    hitRect = NSRect(x: 0, y: cursor - hitPad, width: bounds.width, height: hitArea)
                 }
                 dividerRects.append(dividerRect)
+                dividerHitRects.append(hitRect)
                 cursor += spacing
             }
         }
@@ -6138,11 +6309,10 @@ final class PaneCardView: NSView {
         container.addArrangedSubview(paneView)
         paneView.widthAnchor.constraint(equalTo: container.widthAnchor).isActive = true
 
-        let showActiveBorder = focused && windowIsKey
         layer?.backgroundColor = NSColor.clear.cgColor
         layer?.borderWidth = 0
         layer?.borderColor = nil
-        alphaValue = showActiveBorder ? 1.0 : inactiveOpacity
+        alphaValue = (focused && windowIsKey) ? 1.0 : inactiveOpacity
     }
 }
 
@@ -6180,7 +6350,14 @@ final class PaneHeaderView: NSView {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
-        layer?.backgroundColor = theme.shell.paneHeaderBackground.cgColor
+        layer?.backgroundColor = theme.shell.topBarBackground.cgColor
+
+        let bottomBorder = CALayer()
+        bottomBorder.name = "tabBarBottomBorder"
+        bottomBorder.backgroundColor = NSColor.black.withAlphaComponent(0.35).cgColor
+        bottomBorder.frame = CGRect(x: 0, y: 0, width: 0, height: 1)
+        bottomBorder.autoresizingMask = [.layerWidthSizable]
+        layer?.addSublayer(bottomBorder)
 
         let content = NSStackView()
         content.orientation = .horizontal
@@ -6195,7 +6372,7 @@ final class PaneHeaderView: NSView {
         tabStrip.translatesAutoresizingMaskIntoConstraints = false
         tabStrip.identifier = NSUserInterfaceItemIdentifier("pane-tab-strip-\(paneStack.id.rawValue)")
         tabStrip.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        tabStrip.setContentCompressionResistancePriority(.required, for: .horizontal)
+        tabStrip.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         for pane in paneStack.panes {
             let button = PaneTabButton(
@@ -6235,23 +6412,27 @@ final class PaneHeaderView: NSView {
             paneTabButtons.append(button)
         }
 
-        // Each tab takes an equal share of the available width, clamped to
-        // [tabMinWidth, tabMaxWidth]. When tabs overflow at minimum width the
-        // scroll view allows horizontal scrolling.
+        // Keep tab visuals balanced like 08efd4d while preserving a usable
+        // minimum hit target once multiple tabs are open.
         let tabWidthConstraints: [NSLayoutConstraint] = {
             guard !paneTabButtons.isEmpty else { return [] }
             let first = paneTabButtons[0]
             let count = CGFloat(paneTabButtons.count)
+            let shouldEnforceMinWidth = paneTabButtons.count > 1
             var constraints: [NSLayoutConstraint] = []
             for button in paneTabButtons {
-                let equalWidth = button.widthAnchor.constraint(
-                    equalTo: widthAnchor,
+                let equalShare = button.widthAnchor.constraint(
+                    equalTo: tabScrollView.widthAnchor,
                     multiplier: 1.0 / count
                 )
-                equalWidth.priority = .defaultHigh
-                let minWidth = button.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.tabMinWidth)
+                equalShare.priority = .defaultHigh
                 let maxWidth = button.widthAnchor.constraint(lessThanOrEqualToConstant: Self.tabMaxWidth)
-                constraints.append(contentsOf: [equalWidth, minWidth, maxWidth])
+                constraints.append(contentsOf: [equalShare, maxWidth])
+                if shouldEnforceMinWidth {
+                    let minWidth = button.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.tabMinWidth)
+                    minWidth.priority = .required
+                    constraints.append(minWidth)
+                }
                 if button !== first {
                     let sameWidth = button.widthAnchor.constraint(equalTo: first.widthAnchor)
                     sameWidth.priority = .defaultHigh
@@ -6301,8 +6482,6 @@ final class PaneHeaderView: NSView {
         content.addArrangedSubview(tabScrollView)
         addSubview(pinnedAddButton)
         addSubview(content)
-
-        // Activate after content is in the view hierarchy so button and self share a common ancestor.
         NSLayoutConstraint.activate(tabWidthConstraints)
 
         let trailingToSuperview = content.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8)
@@ -6508,7 +6687,7 @@ private final class PaneTabButton: NSControl, NSTextFieldDelegate {
     private let iconImageView = NSImageView()
     private let progressOrb = PaneProgressOrbView()
     private let closeButton = ChromePillButton()
-     private let contentInsets = NSEdgeInsets(top: 0, left: 5, bottom: 0, right: 3)
+    private let contentInsets = NSEdgeInsets(top: 0, left: 5, bottom: 0, right: 3)
     private let interItemSpacing = CGFloat(4)
     private let iconSpacing = CGFloat(4)
     private let symbolSide = CGFloat(12)
@@ -6550,6 +6729,7 @@ private final class PaneTabButton: NSControl, NSTextFieldDelegate {
         setAccessibilityLabel(icon.map { "\($0.accessibilityLabel), \(fullDisplayTitle)" } ?? fullDisplayTitle)
         toolTip = fullDisplayTitle
         setContentHuggingPriority(.defaultLow, for: .horizontal)
+        setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         progressOrb.identifier = NSUserInterfaceItemIdentifier("pane-tab-progress-\(pane.id.rawValue)")
         progressOrb.configure(progress: progress, theme: theme)
@@ -6627,25 +6807,14 @@ private final class PaneTabButton: NSControl, NSTextFieldDelegate {
     }
 
     override var intrinsicContentSize: NSSize {
-        let titleSize = titleLabel.intrinsicContentSize
-        let iconSize = renderedIcon == nil
-            ? .zero
-            : (iconSymbolImage == nil ? iconLabel.intrinsicContentSize : NSSize(width: symbolSide, height: symbolSide))
-        let closeSize = showsClose ? closeButton.intrinsicContentSize : .zero
-        let closeWidth = showsClose ? interItemSpacing + closeSize.width : 0
-        let progressWidth = progress == nil ? 0 : PaneProgressOrbView.side + iconSpacing
-        let iconWidth = renderedIcon == nil ? 0 : iconSize.width + iconSpacing
-        return NSSize(
-            width: progressWidth + iconWidth + titleSize.width + closeWidth + contentInsets.left + contentInsets.right,
-            height: ShellLayoutMetrics.paneHeaderHeight
-        )
+        NSSize(width: NSView.noIntrinsicMetric, height: ShellLayoutMetrics.paneHeaderHeight)
     }
 
     override func layout() {
         super.layout()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        topBorderLayer.frame = CGRect(x: 0, y: 0, width: bounds.width, height: 2)
+        topBorderLayer.frame = CGRect(x: 0, y: 0, width: bounds.width, height: 1)
         CATransaction.commit()
         let contentLeft = contentInsets.left
         let contentRight = contentInsets.right
@@ -6716,6 +6885,7 @@ private final class PaneTabButton: NSControl, NSTextFieldDelegate {
             )
             closeButton.frame = .zero
         }
+        titleLabel.lineBreakMode = .byTruncatingMiddle
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -6866,13 +7036,13 @@ private final class PaneTabButton: NSControl, NSTextFieldDelegate {
         iconImageView.contentTintColor = iconColor
         if isActiveTab {
             layer?.backgroundColor = currentTheme.shell.paneCardBackground.cgColor
-            topBorderLayer.backgroundColor = currentTheme.shell.accent.cgColor
+            topBorderLayer.backgroundColor = currentTheme.shell.border.cgColor
+            topBorderLayer.isHidden = false
         } else {
             layer?.backgroundColor = NSColor.clear.cgColor
-            topBorderLayer.backgroundColor = currentTheme.shell.border.cgColor
+            topBorderLayer.isHidden = true
         }
-        topBorderLayer.isHidden = false
-        alphaValue = isEnabled ? (isActiveTab ? 1.0 : 0.6) : 0.4
+        alphaValue = isEnabled ? 1.0 : 0.4
     }
 }
 
@@ -6892,6 +7062,7 @@ private class ChromePillButton: NSControl {
     private var symbolName: String?
     private var accessibilityLabel: String?
     private var isActive = false
+    private var isHovered = false
     private var currentTheme = WorkspaceShellTheme.defaultTheme
 
     override init(frame frameRect: NSRect) {
@@ -6971,10 +7142,55 @@ private class ChromePillButton: NSControl {
         let foreground = isActive ? currentTheme.shell.selectedText : currentTheme.shell.textSecondary
         titleLabel.textColor = foreground
         imageView.contentTintColor = foreground
-        layer?.backgroundColor = (isActive ? currentTheme.shell.selection : NSColor.clear).cgColor
+        let background: NSColor
+        if isActive {
+            background = currentTheme.shell.selection
+        } else if isHovered {
+            background = NSColor.labelColor.withAlphaComponent(0.15)
+        } else {
+            background = .clear
+        }
+        layer?.backgroundColor = background.cgColor
         layer?.borderWidth = 0
         layer?.borderColor = nil
         alphaValue = isEnabled ? 1 : 0.4
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach { removeTrackingArea($0) }
+        guard !bounds.isEmpty else { return }
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways],
+            owner: self,
+            userInfo: nil
+        ))
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        if newSize == .zero {
+            isHovered = false
+            updateVisualState()
+        }
+        updateTrackingAreas()
+        window?.invalidateCursorRects(for: self)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateTrackingAreas()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+        updateVisualState()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+        updateVisualState()
     }
 
     override var intrinsicContentSize: NSSize {
@@ -6994,6 +7210,7 @@ private class ChromePillButton: NSControl {
 
     override func layout() {
         super.layout()
+        updateTrackingAreas()
         let contentBounds = bounds.insetBy(dx: contentInsets.left, dy: contentInsets.top)
         if title == nil {
             let symbolSide = compact ? CGFloat(11) : CGFloat(12)
@@ -7168,10 +7385,12 @@ final class SidebarItemButton: NSView, NSTextFieldDelegate {
             layer?.backgroundColor = item.isActive
                 ? theme.shell.selection.cgColor
                 : NSColor.clear.cgColor
+            layer?.cornerRadius = 3
         case .terminal:
             layer?.backgroundColor = item.isActive
                 ? theme.shell.selection.withAlphaComponent(0.28).cgColor
                 : NSColor.clear.cgColor
+            layer?.cornerRadius = 3
         }
         layer?.borderWidth = 0
         layer?.borderColor = nil

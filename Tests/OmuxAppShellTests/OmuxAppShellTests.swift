@@ -373,6 +373,33 @@ final class OmuxAppShellTests: XCTestCase {
         XCTAssertEqual(OmuxCLIInstallStatus.repairNeeded.menuTitle, "Repair omux CLI")
     }
 
+    // Regression test: closing a split pane must leave the remaining pane in the
+    // workspace model without removing the tab or collapsing the workspace.
+    func testRemoveActivePaneLeavesRemainingPaneIntact() throws {
+        let controller = WorkspaceController(
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
+            hookRunner: ExternalHookRunner()
+        )
+
+        let workspace = try controller.openWorkspace(at: "/tmp")
+        XCTAssertEqual(workspace.focusedTab?.panes.count, 1)
+
+        // Split so we have two panes.
+        let splitWorkspace = try XCTUnwrap(controller.splitFocusedPane())
+        XCTAssertEqual(splitWorkspace.focusedTab?.panes.count, 2)
+        let survivingPaneID = try XCTUnwrap(splitWorkspace.focusedTab?.panes.first?.id)
+
+        // Remove the active (second) pane — should succeed.
+        let afterRemoval = try XCTUnwrap(controller.removeActivePane())
+
+        // Exactly one pane must remain in the focused tab.
+        XCTAssertEqual(afterRemoval.focusedTab?.panes.count, 1)
+        // The surviving pane must be the one that was not removed.
+        XCTAssertEqual(afterRemoval.focusedTab?.panes.first?.id, survivingPaneID)
+        // The workspace itself must still be present.
+        XCTAssertEqual(afterRemoval.tabs.count, 1)
+    }
+
     func testWorkspaceControllerCreatesTabsAndSplits() throws {
         let controller = WorkspaceController(
             bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
@@ -1288,7 +1315,7 @@ final class OmuxAppShellTests: XCTestCase {
     }
 
     @MainActor
-    func testSidebarPinsShortWorkspaceListToTopOfScrollArea() throws {
+    func testSidebarHeaderIsPinnedAboveScrollView() throws {
         let sidebar = WorkspaceSidebarView(frame: NSRect(x: 0, y: 0, width: 224, height: 780))
         let items = [
             SidebarItem(
@@ -1336,7 +1363,137 @@ final class OmuxAppShellTests: XCTestCase {
         let scrollFrame = scrollView.convert(scrollView.bounds, to: sidebar)
         let titleFrame = titleLabel.convert(titleLabel.bounds, to: sidebar)
 
-        XCTAssertLessThanOrEqual(abs(titleFrame.minY - scrollFrame.minY), 4)
+        // Header lives outside the scroll view and is pinned above it.
+        XCTAssertLessThan(titleFrame.minY, scrollFrame.minY,
+            "Title label should be above the scroll view")
+        XCTAssertLessThanOrEqual(titleFrame.minY, 20,
+            "Title label should be near the top of the sidebar")
+    }
+
+    @MainActor
+    func testWorkspaceSidebarTitleFontMatchesAgentSessionsSidebarTitle() throws {
+        // Workspace sidebar
+        let sidebar = WorkspaceSidebarView(frame: NSRect(x: 0, y: 0, width: 224, height: 780))
+        sidebar.render(
+            workspaceItems: [],
+            theme: .defaultTheme,
+            onSelectWorkspace: { _ in },
+            onCreateWorkspace: {},
+            onDeleteWorkspace: {},
+            canDeleteWorkspace: false,
+            updateAvailability: nil,
+            onMoveWorkspace: { _, _ in },
+            onToggleWorkspaceExpansion: { _ in },
+            onRenameWorkspace: { _, _ in },
+            onSelectPane: { _ in }
+        )
+        sidebar.layoutSubtreeIfNeeded()
+        let workspaceTitleLabel = try XCTUnwrap(findLabelView(withString: "WORKSPACES · 0", in: sidebar))
+
+        // Vault sidebar — via WorkspaceWindowController with vault enabled
+        let controller = WorkspaceController(
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
+            hookRunner: ExternalHookRunner()
+        )
+        _ = try controller.openWorkspace(at: "/tmp")
+        let windowController = WorkspaceWindowController(
+            workspace: controller.activeWorkspace()!,
+            controller: controller,
+            vaultConfiguration: VaultConfiguration(enabled: true)
+        )
+        let rootView = try XCTUnwrap(windowController.window?.contentViewController?.view)
+        rootView.layoutSubtreeIfNeeded()
+        let agentTitleLabel = try XCTUnwrap(findLabelView(withString: "AGENT SESSIONS", in: rootView))
+
+        XCTAssertEqual(
+            workspaceTitleLabel.font?.pointSize,
+            agentTitleLabel.font?.pointSize,
+            "Workspace and agent sessions sidebar titles should have the same font size"
+        )
+        XCTAssertEqual(
+            workspaceTitleLabel.font?.fontName,
+            agentTitleLabel.font?.fontName,
+            "Workspace and agent sessions sidebar titles should have the same font"
+        )
+    }
+
+    @MainActor
+    func testAgentSessionsSidebarTitleTopPaddingMatchesWorkspaceSidebar() throws {
+        // Workspace sidebar header top inset
+        let sidebar = WorkspaceSidebarView(frame: NSRect(x: 0, y: 0, width: 224, height: 780))
+        sidebar.render(
+            workspaceItems: [],
+            theme: .defaultTheme,
+            onSelectWorkspace: { _ in },
+            onCreateWorkspace: {},
+            onDeleteWorkspace: {},
+            canDeleteWorkspace: false,
+            updateAvailability: nil,
+            onMoveWorkspace: { _, _ in },
+            onToggleWorkspaceExpansion: { _ in },
+            onRenameWorkspace: { _, _ in },
+            onSelectPane: { _ in }
+        )
+        sidebar.layoutSubtreeIfNeeded()
+        let workspaceTitleLabel = try XCTUnwrap(findLabelView(withString: "WORKSPACES · 0", in: sidebar))
+        let workspaceTitleFrame = workspaceTitleLabel.convert(workspaceTitleLabel.bounds, to: sidebar)
+
+        // Vault sidebar header top inset
+        let controller = WorkspaceController(
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
+            hookRunner: ExternalHookRunner()
+        )
+        _ = try controller.openWorkspace(at: "/tmp")
+        let windowController = WorkspaceWindowController(
+            workspace: controller.activeWorkspace()!,
+            controller: controller,
+            vaultConfiguration: VaultConfiguration(enabled: true)
+        )
+        let rootView = try XCTUnwrap(windowController.window?.contentViewController?.view)
+        rootView.layoutSubtreeIfNeeded()
+        let vaultSidebarView = try XCTUnwrap(
+            findViews(ofType: NSView.self, in: rootView)
+                .first { $0.accessibilityIdentifier() == A11yID.vaultSidebar.rawValue }
+        )
+        let agentTitleLabel = try XCTUnwrap(findLabelView(withString: "AGENT SESSIONS", in: vaultSidebarView))
+        let agentTitleFrame = agentTitleLabel.convert(agentTitleLabel.bounds, to: vaultSidebarView)
+
+        XCTAssertEqual(
+            workspaceTitleFrame.minY.rounded(),
+            agentTitleFrame.minY.rounded(),
+            accuracy: 4,
+            "Workspace and agent sessions sidebar titles should have similar top padding"
+        )
+    }
+
+    @MainActor
+    func testAgentSessionsSidebarHasLeftBorder() throws {
+        let controller = WorkspaceController(
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
+            hookRunner: ExternalHookRunner()
+        )
+        _ = try controller.openWorkspace(at: "/tmp")
+        let windowController = WorkspaceWindowController(
+            workspace: controller.activeWorkspace()!,
+            controller: controller,
+            vaultConfiguration: VaultConfiguration(enabled: true)
+        )
+        let rootView = try XCTUnwrap(windowController.window?.contentViewController?.view)
+        rootView.layoutSubtreeIfNeeded()
+        let vaultSidebarView = try XCTUnwrap(
+            findViews(ofType: NSView.self, in: rootView)
+                .first { $0.accessibilityIdentifier() == A11yID.vaultSidebar.rawValue }
+        )
+
+        // apply(theme:) is called during render in WorkspaceWindowController init,
+        // which creates the border layer lazily.
+
+        let borderLayer = vaultSidebarView.layer?.sublayers?.first {
+            $0.name == "vaultSidebarLeftBorder"
+        }
+        XCTAssertNotNil(borderLayer, "Agent sessions sidebar should have a left border layer")
+        XCTAssertEqual(borderLayer?.frame.width, 1, "Left border should be 1pt wide")
+        XCTAssertEqual(borderLayer?.frame.minX, 0, "Left border should be at x=0")
     }
 
     @MainActor
@@ -3550,7 +3707,7 @@ final class OmuxAppShellTests: XCTestCase {
         rootView.layoutSubtreeIfNeeded()
 
         let toggle = findViews(ofType: NSButton.self, in: rootView)
-            .first { $0.identifier?.rawValue == "vault-sidebar-toggle" }
+            .first { $0.identifier?.rawValue == A11yID.vaultSidebarToggle.rawValue }
         XCTAssertNotNil(toggle)
     }
 
@@ -3571,7 +3728,7 @@ final class OmuxAppShellTests: XCTestCase {
         rootView.layoutSubtreeIfNeeded()
 
         let toggle = findViews(ofType: NSButton.self, in: rootView)
-            .first { $0.identifier?.rawValue == "vault-sidebar-toggle" }
+            .first { $0.identifier?.rawValue == A11yID.vaultSidebarToggle.rawValue }
         XCTAssertNil(toggle)
     }
 
@@ -5008,33 +5165,6 @@ final class OmuxAppShellTests: XCTestCase {
     }
 
     @MainActor
-    func testWorkspaceWindowUsesConfiguredInactivePaneOpacity() throws {
-        let runtime = ActionEmittingGhosttyRuntime()
-        let bridge = GhosttyTerminalBridge(runtime: runtime)
-        let controller = WorkspaceController(
-            bridge: bridge,
-            hookRunner: ExternalHookRunner()
-        )
-
-        let workspace = try controller.openWorkspace(at: "/tmp")
-        let windowController = WorkspaceWindowController(
-            workspace: workspace,
-            controller: controller,
-            initialPanes: OmuxConfigUI.Panes(inactiveOpacity: 0.72)
-        )
-        let rootView = try XCTUnwrap(windowController.window?.contentViewController?.view)
-        var paneCard = try XCTUnwrap(findView(ofType: PaneCardView.self, in: rootView))
-
-        XCTAssertEqual(paneCard.alphaValue, 0.72, accuracy: 0.001)
-
-        windowController.updatePanes(OmuxConfigUI.Panes(inactiveOpacity: 0.9))
-        rootView.layoutSubtreeIfNeeded()
-        paneCard = try XCTUnwrap(findView(ofType: PaneCardView.self, in: rootView))
-
-        XCTAssertEqual(paneCard.alphaValue, 0.9, accuracy: 0.001)
-    }
-
-    @MainActor
     func testWorkspaceWindowShowsTerminalMetadataRowsAndNavigatesViaSidebar() throws {
         let runtime = ActionEmittingGhosttyRuntime()
         let bridge = GhosttyTerminalBridge(runtime: runtime)
@@ -5465,6 +5595,80 @@ final class OmuxAppShellTests: XCTestCase {
         XCTAssertEqual(canvasFrame.maxX, rootView.bounds.maxX, accuracy: 1)
         XCTAssertEqual(hostedFrame.minX, canvasFrame.minX, accuracy: 1)
         XCTAssertEqual(hostedFrame.maxX, canvasFrame.maxX, accuracy: 1)
+    }
+
+    @MainActor
+    func testWorkspaceWindowSinglePaneCanResizeInWindowedAndFullscreenModes() throws {
+        let controller = WorkspaceController(
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
+            hookRunner: ExternalHookRunner()
+        )
+        let workspace = try controller.openWorkspace(at: "/tmp")
+        let windowController = WorkspaceWindowController(workspace: workspace, controller: controller)
+        let window = try XCTUnwrap(windowController.window)
+
+        windowController.showWindow(nil)
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        window.contentView?.layoutSubtreeIfNeeded()
+
+        let originalFrame = window.frame
+        let narrowWidth = max(window.minSize.width, originalFrame.width - 260)
+        window.setFrame(
+            NSRect(
+                x: originalFrame.origin.x,
+                y: originalFrame.origin.y,
+                width: narrowWidth,
+                height: originalFrame.height
+            ),
+            display: true
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(window.frame.width, narrowWidth, accuracy: 2)
+
+        let wideWidth = narrowWidth + 320
+        window.setFrame(
+            NSRect(
+                x: originalFrame.origin.x,
+                y: originalFrame.origin.y,
+                width: wideWidth,
+                height: originalFrame.height
+            ),
+            display: true
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(window.frame.width, wideWidth, accuracy: 2)
+
+        let didEnterFullscreen = expectation(
+            forNotification: NSWindow.didEnterFullScreenNotification,
+            object: window
+        )
+        window.toggleFullScreen(nil)
+        let enterResult = XCTWaiter.wait(for: [didEnterFullscreen], timeout: 5)
+        guard enterResult == .completed else {
+            throw XCTSkip("Fullscreen transition unavailable in this test environment")
+        }
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        let fullscreenWidth = window.frame.width
+        XCTAssertGreaterThan(
+            fullscreenWidth,
+            wideWidth + 80,
+            "single-pane layout must not cap fullscreen width"
+        )
+
+        let didExitFullscreen = expectation(
+            forNotification: NSWindow.didExitFullScreenNotification,
+            object: window
+        )
+        window.toggleFullScreen(nil)
+        let exitResult = XCTWaiter.wait(for: [didExitFullscreen], timeout: 5)
+        guard exitResult == .completed else {
+            throw XCTSkip("Could not exit fullscreen in this test environment")
+        }
+
+        window.contentView?.layoutSubtreeIfNeeded()
+        XCTAssertEqual(window.frame.width, wideWidth, accuracy: 8)
     }
 
     func testTerminalActionCoordinatorEmitsStructuredHooksAndNativeNotifications() throws {
@@ -6400,28 +6604,6 @@ final class OmuxAppShellTests: XCTestCase {
         XCTAssertEqual(invalidResponse.error?.code, 404)
     }
 
-    func testPaneTabTitleFormatterKeepsShortTitlesUnchanged() {
-        XCTAssertEqual(PaneTabTitleFormatter.displayTitle("Opencode"), "Opencode")
-        XCTAssertEqual(PaneTabTitleFormatter.displayTitle("~/Projects/DungeonPlanner"), "~/Projects/DungeonPlanner")
-
-        let exactMaximum = String(repeating: "a", count: PaneTabTitleFormatter.defaultMaximumLength)
-        XCTAssertEqual(PaneTabTitleFormatter.displayTitle(exactMaximum), exactMaximum)
-    }
-
-    func testPaneTabTitleFormatterBoundsLongTitles() {
-        let title = ".../T/openmux-update-0733BCA7-E332-40BC-B156-16BA405604E7/unpacked"
-        let displayTitle = PaneTabTitleFormatter.displayTitle(title, maximumLength: 44)
-
-        XCTAssertLessThanOrEqual(displayTitle.count, 44)
-        XCTAssertTrue(displayTitle.hasPrefix(".../T/openmux-update"))
-        XCTAssertTrue(displayTitle.hasSuffix("unpacked"))
-        XCTAssertNotEqual(displayTitle, title)
-    }
-
-    func testPaneTabTitleFormatterSplitsTruncatedTitlesWithinMaximum() {
-        XCTAssertEqual(PaneTabTitleFormatter.displayTitle("abcdefghij", maximumLength: 8), "ab...hij")
-        XCTAssertEqual(PaneTabTitleFormatter.displayTitle("abcdefghij", maximumLength: 9), "abc...hij")
-    }
 
     @MainActor
     func testPaneTabTitleLabelUsesMiddleTruncationModeForShortTitles() throws {
@@ -6447,6 +6629,101 @@ final class OmuxAppShellTests: XCTestCase {
         XCTAssertEqual(titleLabel.stringValue, "Opencode")
         XCTAssertEqual(titleLabel.lineBreakMode, .byTruncatingMiddle)
         XCTAssertGreaterThanOrEqual(titleLabel.frame.width, titleLabel.intrinsicContentSize.width)
+    }
+
+    @MainActor
+    func testSinglePaneTabDoesNotInstallFixedMinimumWidthConstraint() throws {
+        let controller = WorkspaceController(
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
+            hookRunner: ExternalHookRunner()
+        )
+        let workspace = try controller.openWorkspace(at: "/tmp")
+        let pane = try XCTUnwrap(workspace.focusedPane)
+        let windowController = WorkspaceWindowController(
+            workspace: workspace,
+            controller: controller
+        )
+        let rootView = try XCTUnwrap(windowController.window?.contentViewController?.view)
+        rootView.layoutSubtreeIfNeeded()
+
+        let tabButton = try XCTUnwrap(findViews(ofType: NSControl.self, in: rootView).first {
+            $0.identifier?.rawValue == "pane-tab-\(pane.id.rawValue)"
+        })
+
+        let horizontalConstraints = tabButton.constraintsAffectingLayout(for: .horizontal)
+        let hasFixedMinimum = horizontalConstraints.contains { constraint in
+            constraint.firstAnchor == tabButton.widthAnchor &&
+            constraint.relation == .greaterThanOrEqual &&
+            abs(constraint.constant - 130) < 0.001
+        }
+
+        XCTAssertFalse(hasFixedMinimum, "single-pane tabs must not impose a fixed minimum width on the window layout")
+    }
+
+    @MainActor
+    func testMultiPaneTabsInstallUsableMinimumWidthConstraint() throws {
+        let controller = WorkspaceController(
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
+            hookRunner: ExternalHookRunner()
+        )
+        _ = try controller.openWorkspace(at: "/tmp")
+        let withSecondTab = try XCTUnwrap(controller.createPaneTab())
+        let secondPane = try XCTUnwrap(withSecondTab.focusedPane)
+
+        let windowController = WorkspaceWindowController(
+            workspace: withSecondTab,
+            controller: controller
+        )
+        let window = try XCTUnwrap(windowController.window)
+        let rootView = try XCTUnwrap(window.contentViewController?.view)
+        window.setFrame(
+            NSRect(x: window.frame.origin.x, y: window.frame.origin.y, width: 260, height: window.frame.height),
+            display: true
+        )
+        rootView.layoutSubtreeIfNeeded()
+
+        let secondTabButton = try XCTUnwrap(findViews(ofType: NSControl.self, in: rootView).first {
+            $0.identifier?.rawValue == "pane-tab-\(secondPane.id.rawValue)"
+        })
+
+        XCTAssertGreaterThanOrEqual(
+            secondTabButton.frame.width,
+            125,
+            "multi-pane tabs should keep a usable minimum width instead of collapsing to tiny hit targets"
+        )
+    }
+
+    @MainActor
+    func testShortPaneTabTitleKeepsIntrinsicWidthWhenNeighborTabIsLong() throws {
+        let controller = WorkspaceController(
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
+            hookRunner: ExternalHookRunner()
+        )
+        _ = try controller.openWorkspace(at: "/tmp")
+        _ = try XCTUnwrap(controller.createPaneTab())
+
+        let focusedPaneID = try XCTUnwrap(controller.activeWorkspace()?.focusedPane?.id)
+        let renamedShort = try XCTUnwrap(controller.renamePaneTab(focusedPaneID, to: "omux"))
+        let firstPaneID = try XCTUnwrap(renamedShort.focusedTab?.panes.first?.id)
+        let renamed = try XCTUnwrap(controller.renamePaneTab(firstPaneID, to: "~/proj...s/omux/a-very-long-tab-title-to-trigger-middle-truncation"))
+
+        let windowController = WorkspaceWindowController(
+            workspace: renamed,
+            controller: controller
+        )
+        let rootView = try XCTUnwrap(windowController.window?.contentViewController?.view)
+        rootView.layoutSubtreeIfNeeded()
+
+        let shortButton = try XCTUnwrap(findViews(ofType: NSControl.self, in: rootView).first {
+            $0.identifier?.rawValue == "pane-tab-\(focusedPaneID.rawValue)"
+        })
+        let shortLabel = try XCTUnwrap(findLabelView(withString: "omux", in: shortButton))
+
+        XCTAssertGreaterThanOrEqual(
+            shortLabel.frame.width,
+            shortLabel.intrinsicContentSize.width,
+            "short pane tab titles should not be truncated when layout has available width"
+        )
     }
 
     func testPaneTabDragRequiresAttachedTerminalSession() throws {

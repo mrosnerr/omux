@@ -31,6 +31,34 @@ extension PaneTests {
     func doubleClickCenter(_ element: XCUIElement) {
         element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).doubleClick()
     }
+
+    /// Renames a pane tab using inline edit (double-click then type).
+    func renamePaneTab(_ tab: XCUIElement, to newTitle: String) {
+        XCTAssertTrue(tab.exists, "tab to rename should exist")
+        tab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+        doubleClickCenter(tab)
+        app.typeKey("a", modifierFlags: .command)
+        app.typeText(newTitle)
+        app.typeKey(.return, modifierFlags: [])
+    }
+
+    /// Polls until the main window width differs from `baselineWidth` by at least `delta`.
+    @discardableResult
+    func waitForWindowWidthChange(
+        _ window: XCUIElement,
+        baselineWidth: CGFloat,
+        delta: CGFloat,
+        timeout: TimeInterval = 3
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if abs(window.frame.width - baselineWidth) >= delta {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return false
+    }
 }
 
 final class PaneTests: OmuxUITestsBase {
@@ -92,6 +120,91 @@ final class PaneTests: OmuxUITestsBase {
         // We don't assert the final count since one pane may remain as minimum;
         // the key check is the menu action fired without crashing.
         XCTAssertTrue(app.state == .runningForeground, "App should still be running after pane removal")
+    }
+
+    func testSinglePaneWindowWidthCanResizeFromRightEdge() {
+        XCTAssertTrue(
+            waitForPaneTabs(atLeast: 1),
+            "single-pane tab should be visible on launch"
+        )
+
+        let mainWindow = app.windows.matching(identifier: A11yID.mainWindow.rawValue).firstMatch
+        XCTAssertTrue(mainWindow.waitForExistence(timeout: 5), "main window should exist")
+
+        let initialWidth = mainWindow.frame.width
+        XCTAssertGreaterThan(initialWidth, 300, "baseline window width should be reasonable")
+
+        let rightEdge = mainWindow.coordinate(withNormalizedOffset: CGVector(dx: 0.998, dy: 0.5))
+        rightEdge.press(forDuration: 0.05, thenDragTo: rightEdge.withOffset(CGVector(dx: -220, dy: 0)))
+        XCTAssertTrue(
+            waitForWindowWidthChange(mainWindow, baselineWidth: initialWidth, delta: 80),
+            "window width should shrink in single-pane mode when dragging right edge inward"
+        )
+
+        let reducedWidth = mainWindow.frame.width
+        XCTAssertLessThan(reducedWidth, initialWidth - 80)
+
+        let rightEdgeAfterShrink = mainWindow.coordinate(withNormalizedOffset: CGVector(dx: 0.998, dy: 0.5))
+        rightEdgeAfterShrink.press(forDuration: 0.05, thenDragTo: rightEdgeAfterShrink.withOffset(CGVector(dx: 260, dy: 0)))
+        XCTAssertTrue(
+            waitForWindowWidthChange(mainWindow, baselineWidth: reducedWidth, delta: 80),
+            "window width should grow in single-pane mode when dragging right edge outward"
+        )
+        XCTAssertGreaterThan(mainWindow.frame.width, reducedWidth + 80)
+    }
+
+    func testPaneTabSizingKeepsShortTitlesFromCollapsing() {
+        let menuBar = app.menuBars.firstMatch
+        menuBar.menuBarItems["Pane"].click()
+        menuBar.menuBarItems["Pane"].menuItems["New Pane Tab"].click()
+        XCTAssertTrue(waitForPaneTabs(atLeast: 2), "expected two pane tabs")
+
+        let tabs = paneTabButtons()
+        let firstTab = tabs.element(boundBy: 0)
+        let secondTab = tabs.element(boundBy: 1)
+        XCTAssertTrue(firstTab.waitForExistence(timeout: 5))
+        XCTAssertTrue(secondTab.waitForExistence(timeout: 5))
+
+        renamePaneTab(firstTab, to: "~/projects/omux/a-very-long-tab-title-that-should-truncate-in-the-middle")
+        renamePaneTab(secondTab, to: "omux")
+
+        let mainWindow = app.windows.matching(identifier: A11yID.mainWindow.rawValue).firstMatch
+        let rightEdge = mainWindow.coordinate(withNormalizedOffset: CGVector(dx: 0.998, dy: 0.5))
+        rightEdge.press(forDuration: 0.05, thenDragTo: rightEdge.withOffset(CGVector(dx: 220, dy: 0)))
+        XCTAssertGreaterThan(
+            secondTab.frame.width,
+            70,
+            "short-title tab should not collapse to a tiny width"
+        )
+        XCTAssertGreaterThanOrEqual(
+            firstTab.frame.width,
+            secondTab.frame.width,
+            "long-title tab should not be narrower than the short-title neighbor"
+        )
+    }
+
+    func testPaneTabLongTitleRetainsFullAccessibilityLabelWhenWidthIsTight() {
+        let menuBar = app.menuBars.firstMatch
+        menuBar.menuBarItems["Pane"].click()
+        menuBar.menuBarItems["Pane"].menuItems["New Pane Tab"].click()
+        XCTAssertTrue(waitForPaneTabs(atLeast: 2), "expected two pane tabs")
+
+        let tabs = paneTabButtons()
+        let firstTab = tabs.element(boundBy: 0)
+        let secondTab = tabs.element(boundBy: 1)
+        XCTAssertTrue(firstTab.waitForExistence(timeout: 5))
+        XCTAssertTrue(secondTab.waitForExistence(timeout: 5))
+
+        renamePaneTab(firstTab, to: "~/projects/omux/a-very-long-tab-title-that-should-truncate-in-the-middle")
+        renamePaneTab(secondTab, to: "omux")
+
+        let mainWindow = app.windows.matching(identifier: A11yID.mainWindow.rawValue).firstMatch
+        let rightEdge = mainWindow.coordinate(withNormalizedOffset: CGVector(dx: 0.998, dy: 0.5))
+        rightEdge.press(forDuration: 0.05, thenDragTo: rightEdge.withOffset(CGVector(dx: -260, dy: 0)))
+        XCTAssertTrue(
+            firstTab.label.contains("a-very-long-tab-title-that-should-truncate-in-the-middle"),
+            "long tab should keep full accessibility label even when visually truncated"
+        )
     }
 
     func testNewPaneTab() {
@@ -202,6 +315,46 @@ final class PaneTests: OmuxUITestsBase {
     }
 
     // MARK: - Drag/drop: pane tab to new split
+
+    func testWindowFrameDoesNotShrinkAfterClosingSplitPane() {
+        let menuBar = app.menuBars.firstMatch
+        let window = app.windows[A11yID.mainWindow.rawValue]
+
+        // Wait for the window to settle before sampling its frame.
+        XCTAssertTrue(window.waitForExistence(timeout: 5), "Main window should exist on launch")
+        let frameBefore = window.frame
+
+        // Split the focused pane.
+        menuBar.menuBarItems["Pane"].click()
+        menuBar.menuBarItems["Pane"].menuItems["Split Right"].click()
+
+        // Wait for the split to appear.
+        let paneContainer = app.groups[A11yID.paneContainer.rawValue]
+        _ = XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "count >= 2"),
+            object: paneContainer.children(matching: .any)
+        )], timeout: 5)
+
+        // Remove the active (right) pane.
+        menuBar.menuBarItems["Pane"].click()
+        menuBar.menuBarItems["Pane"].menuItems["Remove Active Pane"].click()
+
+        // Give AppKit a moment to flush any layout pass.
+        _ = XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "count < 2"),
+            object: paneContainer.children(matching: .any)
+        )], timeout: 3)
+
+        let frameAfter = window.frame
+
+        // The window must not shrink in width after closing the split pane.
+        // Allow a tolerance of 2 pts for rounding / chrome adjustments.
+        XCTAssertGreaterThanOrEqual(
+            frameAfter.width, frameBefore.width - 2,
+            "Window width should not shrink after closing a split pane (was \(frameBefore.width), now \(frameAfter.width))"
+        )
+        XCTAssertTrue(app.state == .runningForeground, "App should still be running after closing a split pane")
+    }
 
     func testDragPaneTabToCreateSplit() {
         let menuBar = app.menuBars.firstMatch
