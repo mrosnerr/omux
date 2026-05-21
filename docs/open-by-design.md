@@ -40,7 +40,7 @@ Each row is an action that OpenMUX supports or could support. Rows grouped by ca
 | Create pane tab | ✅ | ✅ | ✅ | Fully wired. |
 | Close pane tab | ✅ | ✅ | ✅ | Fully wired. |
 | Focus pane tab | | ✅ | ✅ | Event and CLI exist, no hook. |
-| Focus pane | ✅ | ✅ | | Hook and event exist. No dedicated CLI verb (focus is implicit in other commands). |
+| Focus pane | ✅ | ✅ | ✅ | Fully wired. `omux pane-next`, `pane-prev`, and `focus --pane` cover this. |
 | Remove pane | ✅ | | ✅ | Hook and CLI exist. No control plane event. |
 | Resize pane | | | | Equalize and directional resize have no external signal. |
 | Set/clear pane alias | ✅ | | ✅ | Hook and CLI exist. No control plane event. |
