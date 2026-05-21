@@ -42,6 +42,7 @@ These docs are for changing OpenMUX itself.
 - [Development notes](./development.md) - module boundaries, build commands, runtime bridge notes, and current limitations.
 - [Releasing](./releasing.md) - local packaging, GitHub Release flow, and current distribution status.
 - [Manifesto](./manifest.md) - product principles and architectural guardrails.
+- [Open by Design](./open-by-design.md) - tracks which state transitions are wired into hooks, events, and CLI verbs.
 - [Research notes](./research/) - background investigations for configuration, action dispatch, and foundation decisions.
 
 ## User file locations

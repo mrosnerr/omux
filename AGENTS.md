@@ -144,8 +144,10 @@ When proposing or implementing changes:
 1. Check that the change makes the terminal **more powerful, more flexible, or more open**.
 2. Preserve the boundary between product logic and the terminal engine bridge.
 3. Call out effects on hooks, plugin APIs, CLI contracts, RPC, persistence, and key handling.
-4. Keep AI-related features aligned with the “AI-friendly, not AI-first” rule.
+4. Keep AI-related features aligned with the "AI-friendly, not AI-first" rule.
 5. Avoid speculative complexity when a smaller composable design works.
+6. When adding or modifying a user-observable state transition (workspace, pane, tab, focus, layout, config, or session change), verify it emits a hook invocation and a control plane event, and check whether a CLI verb exists for the same action. Update the coverage table in [`docs/open-by-design.md`](./docs/open-by-design.md) when wiring new transitions or closing gaps.
+7. When changing behavior described by existing documentation, update the affected docs in the same change. Stale documentation is a bug.
 
 ## If the repo is still sparse
 
