@@ -58,7 +58,7 @@ OpenMUX is a beta, but the core workflow is usable:
 - external hook system, official hook registry, and `omux events`
 - fuzzy-search theme picker and token-based themes
 - command palette, focused-pane find, and keyboard-first pane/workspace actions
-- Agent Sessions for local coding-agent history, plus AI Status pane indicators for supported tools
+- Agent Sessions for local coding-agent history, including built-in Copilot/Codex/Gemini adapters and registry-hosted adapters such as OpenCode, KiloCode, and OMP
 - Markdown Preview, plugin command discovery, extension panes, floating pane modals, native menu contributions, and the official plugin registry
 - XCUIAutomation coverage for the native app shell in CI
 - explicit keyboard-correctness work for ISO layouts, Option behavior, dead keys, compose input, and IME-sensitive flows
@@ -77,7 +77,7 @@ User docs:
 
 - [Getting started](./docs/getting-started.md) - install, first launch, CLI setup, workspaces, panes, themes, hooks, plugins, and the release installer script.
 - [Configuration and themes](./docs/configuration.md) - `~/.omux/config.toml`, themes, terminal settings, keybindings, and plugin config.
-- [Agent Sessions](./docs/agent-sessions.md) - search, resume, monitor, and delete locally indexed coding-agent sessions.
+- [Agent Sessions](./docs/agent-sessions.md) - search, resume, monitor, and delete locally indexed coding-agent sessions from built-in and plugin-provided adapters.
 - [Hooks](./docs/hooks.md) - executable user hooks, registry installs, hook payloads, and automation examples.
 - [Plugins](./docs/plugins/index.md) - bundled plugins, registry installs, and plugin management.
 - [Plugin ecosystem](./docs/plugins.md) - how to create external plugin commands, extension panes, and menu contributions.
@@ -159,6 +159,8 @@ Official registries:
 | Plugins | <https://github.com/finger-gun/omux-plugins> |
 
 Discover registry packages with `omux hooks discover` and `omux plugins discover`. See [Hooks](./docs/hooks.md) for the hook system, [Plugin ecosystem](./docs/plugins.md) for the plugin contract, and [Plugin index](./docs/plugins/index.md) for bundled and registry-hosted plugins.
+
+Registry-hosted Agent Sessions plugins can extend support beyond the bundled adapters. Current examples include OpenCode, KiloCode, and OMP.
 
 ## Status
 
