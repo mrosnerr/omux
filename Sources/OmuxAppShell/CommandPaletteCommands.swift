@@ -58,6 +58,10 @@ struct CommandPaletteCommandCatalog {
             switch command.target {
             case "theme.switch":
                 return .themeSwitch
+            case "workspace.restore-recently-closed":
+                return .restoreWorkspacePalette
+            case "workspace.clear-recently-closed":
+                return .clearRecentlyClosedWorkspaces
             case "omux.agent-sessions.open":
                 return .vaultSessions
             default:
@@ -94,6 +98,10 @@ struct CommandPaletteCommandCatalog {
             switch command.target {
             case "theme.switch":
                 return true
+            case "workspace.restore-recently-closed":
+                return controller.commandPaletteRecentlyClosedWorkspaces().isEmpty == false
+            case "workspace.clear-recently-closed":
+                return controller.commandPaletteRecentlyClosedWorkspaces().isEmpty == false
             case "omux.agent-sessions.open":
                 return true
             default:
@@ -136,6 +144,8 @@ struct CommandPaletteCommandCatalog {
             return false
         case .workspaceCreate, .paneSplitRight, .paneSplitDown, .paneTabCreate, .sidebarToggle, .agentSessionsToggle:
             return controller.activeWorkspace() != nil
+        case .workspaceRestoreLastClosed:
+            return controller.commandPaletteRecentlyClosedWorkspaces().isEmpty == false
         case .paneTabCreateWorktree:
             return controller.resolveTerminalTarget(.focused) != nil
         case .workspaceClose:
@@ -194,6 +204,23 @@ extension WorkspaceController {
             return invokePaletteCLICommand(commandID)
         case .themeSwitch:
             return .inert
+        case .restoreWorkspacePalette:
+            return .inert
+        case .clearRecentlyClosedWorkspaces:
+            clearRecentlyClosedWorkspaces()
+            return .invoked
+        case .reopenClosedWorkspace(let workspaceID):
+            let entries = commandPaletteRecentlyClosedWorkspaces()
+            guard let entry = entries.first(where: { $0.id == workspaceID }) else {
+                return .failed("Workspace is no longer in the recently closed list")
+            }
+            do {
+                _ = try reopenClosedWorkspace(entry)
+                removeRecentlyClosedWorkspace(byID: entry.id)
+                return .invoked
+            } catch {
+                return .failed(error.localizedDescription)
+            }
         case .vaultSessions, .vaultSession:
             return .inert
         case .configOpen:
@@ -209,6 +236,10 @@ extension WorkspaceController {
                 return .inert
             case .workspaceCreate:
                 _ = try createWorkspace()
+            case .workspaceRestoreLastClosed:
+                guard try restoreMostRecentlyClosedWorkspace() != nil else {
+                    return .failed("No recently closed workspaces")
+                }
             case .workspaceClose:
                 guard try deleteActiveWorkspace() != nil else { return .failed("Workspace could not be closed") }
             case .workspacePrevious:
@@ -300,6 +331,30 @@ private extension String {
 }
 
 extension CommandPaletteSearch {
+    static func recentlyClosedResults(
+        query: String,
+        entries: [RecentlyClosedWorkspaceEntry]
+    ) -> [CommandPaletteResult] {
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).localizedLowercase
+        return entries.enumerated().compactMap { _, entry in
+            let pathSearchText = entry.workspacePaths.joined(separator: " ")
+            let searchText = "\(entry.name) \(pathSearchText)".trimmingCharacters(in: .whitespacesAndNewlines).localizedLowercase
+            guard normalizedQuery.isEmpty || searchText.contains(normalizedQuery) || entry.name.localizedLowercase.contains(normalizedQuery) else {
+                return nil
+            }
+            return CommandPaletteResult(
+                id: "recently-closed:\(entry.id.rawValue)",
+                title: entry.name,
+                subtitle: entry.workspacePathSummary,
+                category: .workspace,
+                matchText: "\(entry.name) \(pathSearchText)",
+                aliases: entry.workspacePaths,
+                isEnabled: true,
+                invocationTarget: .reopenClosedWorkspace(entry.id)
+            )
+        }
+    }
+
     static func themeResults(query: String, activeIdentifier: String?) -> [CommandPaletteResult] {
         let themes = WorkspaceShellTheme.availableThemes
         let items = themes.map { theme in

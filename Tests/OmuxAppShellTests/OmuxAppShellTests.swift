@@ -103,7 +103,7 @@ final class OmuxAppShellTests: XCTestCase {
         ) ?? false)
         XCTAssertTrue(workspaceMenu?.items.containsShortcut(
             title: "Delete Workspace",
-            key: "n",
+            key: "\u{8}",
             modifiers: [.command, .shift]
         ) ?? false)
         XCTAssertTrue(workspaceMenu?.items.containsShortcut(
@@ -952,6 +952,26 @@ final class OmuxAppShellTests: XCTestCase {
         })
         XCTAssertEqual(vaultResult.title, "Agent Sessions")
         XCTAssertEqual(controller.invokeCommandPaletteResult(vaultResult), .inert)
+    }
+
+    func testRestoreMostRecentlyClosedWorkspacePublishesWorkspaceRestoredEvent() throws {
+        let controller = WorkspaceController(
+            bridge: GhosttyTerminalBridge(runtime: ActionEmittingGhosttyRuntime()),
+            hookRunner: ExternalHookRunner()
+        )
+        var publishedEvents: [ControlPlaneEvent] = []
+        controller.onControlPlaneEvent = { publishedEvents.append($0) }
+
+        _ = try controller.openWorkspace(at: "/tmp/restore-a")
+        _ = try controller.openWorkspace(at: "/tmp/restore-b")
+        publishedEvents.removeAll()
+
+        _ = try controller.deleteActiveWorkspace()
+        publishedEvents.removeAll()
+
+        let restored = try controller.restoreMostRecentlyClosedWorkspace()
+        XCTAssertNotNil(restored)
+        XCTAssertTrue(publishedEvents.contains(where: { $0.name == "workspace.restored" }))
     }
 
     func testWorktreePaneTabActionRunsCLICommandWithGeneratedBranch() throws {
@@ -7639,7 +7659,7 @@ private extension NSEvent.ModifierFlags {
     }
 }
 
-private final class ActionEmittingGhosttyRuntime: GhosttyRuntime {
+final class ActionEmittingGhosttyRuntime: GhosttyRuntime {
     private var sessions: [String: SessionDescriptor] = [:]
     private var transcriptBySurface: [String: String] = [:]
     private var inputBySurface: [String: String] = [:]
