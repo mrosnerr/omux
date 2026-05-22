@@ -3,6 +3,28 @@
 OpenMUX release notes are committed here before tagging a release. Use `Scripts/check-changes-since-release.sh` to inspect changes since the latest `v*` tag, then use `Scripts/prepare-release.sh <version>` with a reviewed changelog body to prepare the next release.
 
 
+## 0.20.0
+
+### Added
+
+- Added recently closed workspace restore functionality accessible via the Command Palette (`Restore Workspace` action)
+- Added support for external Agent Sessions adapters discovered from plugin directories
+- Added Tokyo Night theme with full TOML configuration
+- Added new action to clear recently closed workspaces via Command Palette
+- Added command palette commands for workspace restore and clear operations
+- Added terminal workspace UI revamp — new title bar, sidebars, and pane chrome design
+
+### Fixed
+
+- Fixed pane tab UI appearance for consistent styling
+- Updated test shortcut key for workspace deletion to match correct modifier
+
+### Documentation
+
+- Added Open by Design platform openness tracker dashboard
+- Updated agent sessions documentation with external adapter guidance
+- Updated configuration reference for plugin registry settings
+- Updated getting started guide with CLI plugin information
 
 ## 0.19.0
 
