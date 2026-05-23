@@ -10,6 +10,7 @@ The change is an internal refactor focused on clear boundaries and behavior pari
 - Reduce controller complexity by extracting focused collaborators with explicit interfaces.
 - Keep terminal bridge boundaries and keyboard/input behavior intact.
 - Improve testability by isolating pure state logic from side-effect orchestration.
+- Create a dedicated publication seam for hooks and control-plane events so later open-by-design parity work can add missing transition coverage without expanding controller-wide coupling.
 
 **Non-Goals:**
 - Changing control-plane RPC shape or workspace semantics.
@@ -28,6 +29,7 @@ The change is an internal refactor focused on clear boundaries and behavior pari
 ### 2) Extract publication concerns
 - Introduce dedicated event publication helpers for hook and control-plane events.
 - Preserve event payload schema and ordering semantics.
+- Keep the publication seam narrow and reusable so future transition wiring can attach at one boundary instead of scattering `hookRunner.emit(...)` and `publishControlPlaneEvent(...)` calls across more controller methods.
 
 **Alternative considered:** leave event calls inline and rely on style discipline.  
 **Why not chosen:** continued duplication and drift risk across large methods.
@@ -45,6 +47,7 @@ The change is an internal refactor focused on clear boundaries and behavior pari
 - **[Risk] Over-abstraction in early-stage codebase** → **Mitigation:** keep extractions small and aligned with existing concepts (workspace, pane, event).
 - **[Risk] Input/keyboard regression from picker unification** → **Mitigation:** preserve key parsing semantics and run existing input/CLI tests.
 - **[Risk] Boundary erosion toward terminal bridge** → **Mitigation:** enforce module APIs that accept OpenMUX-native types only.
+- **[Risk] Refactor improves structure but not future openness work]** → **Mitigation:** require the publication boundary to remain the single place where hook/control-plane emission is wired for controller-owned transitions.
 
 ## Migration Plan
 
@@ -58,3 +61,4 @@ The change is an internal refactor focused on clear boundaries and behavior pari
 
 - Should state/index modules live under `OmuxAppShell` or move partly into `OmuxCore` later?
 - How much debug-only invariant checking should remain in production builds?
+- Should the publication seam expose one combined publisher interface or separate hook and control-plane publishers behind one coordinator?

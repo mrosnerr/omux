@@ -10,3 +10,10 @@ Workspace runtime logic SHALL be partitioned into explicit modules for state/ind
 #### Scenario: Event publication path uses dedicated publisher
 - **WHEN** a mutation emits hook or control-plane events
 - **THEN** publication occurs through dedicated publisher interfaces with unchanged payload semantics
+
+### Requirement: Controller-owned transition publication SHALL converge on one dedicated seam
+Controller-owned workspace, pane, tab, session, and config transitions SHALL route hook invocation and control-plane event emission through a dedicated publication seam rather than introducing new ad hoc inline emission paths across `WorkspaceController`.
+
+#### Scenario: New transition wiring reuses publication seam
+- **WHEN** a contributor wires an additional user-observable transition to hooks or control-plane events
+- **THEN** the transition attaches to the dedicated publication seam instead of duplicating direct emission logic in unrelated controller methods

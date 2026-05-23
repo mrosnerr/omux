@@ -7,10 +7,12 @@ Core runtime logic is concentrated in very large files (`WorkspaceController`, `
 - Split oversized controller responsibilities into cohesive modules with explicit contracts.
 - Preserve current runtime behavior and architecture boundaries while improving code structure.
 - Increase unit-test focus around newly extracted boundaries.
+- Establish a dedicated hook/control-plane publication seam so future open-by-design coverage work lands on focused collaborators instead of adding more inline wiring inside `WorkspaceController`.
 
 ## Non-goals
 
 - No UX redesign or feature expansion.
+- No attempt to close all open-by-design coverage gaps inside this refactor.
 - No cross-platform or webview/browsers-first direction.
 - No broad libghostty bridge leakage into app-level modules.
 
@@ -18,6 +20,7 @@ Core runtime logic is concentrated in very large files (`WorkspaceController`, `
 
 - Extract workspace-state mutation/query responsibilities from `WorkspaceController` into dedicated state/index modules.
 - Extract event/hook publication and extension-pane orchestration responsibilities into focused services.
+- Preserve and clarify the publication path that owns hook invocation and control-plane event emission so later parity work can add missing surfaces without re-entangling controller mutation paths.
 - Consolidate duplicated interactive picker mechanics in CLI into shared reusable primitives.
 - Add tests that lock behavioral parity between pre- and post-refactor flows.
 
@@ -35,4 +38,5 @@ Core runtime logic is concentrated in very large files (`WorkspaceController`, `
 
 - Affected code: `Sources/OmuxAppShell/WorkspaceController.swift`, `Sources/OmuxAppShell/WorkspaceWindowController.swift`, `Sources/OmuxCLI/OmuxCLI.swift`, related tests in `Tests/*`.
 - Public CLI/control-plane semantics remain stable.
+- Existing hook and control-plane event payloads remain stable while their publication path becomes a clearer internal boundary.
 - Internal architecture becomes more composable and easier to extend safely.
