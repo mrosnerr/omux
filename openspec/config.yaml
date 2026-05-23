@@ -43,7 +43,7 @@ context: |
   - Design extension points and hooks as stable contracts, not incidental implementation leaks
 
   Clean-room / licensing constraints:
-  - Do not copy cmux code or file contents
+  - Do not copy other project code or file contents
   - It is acceptable to reuse ideas, behavior, requirements, and architectural observations
   - Preserve clean-room distance from GPL code
 
