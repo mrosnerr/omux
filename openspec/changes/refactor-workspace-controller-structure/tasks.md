@@ -4,6 +4,7 @@
 - [ ] 1.2 Extract hook/control-plane publication helpers into a dedicated publication seam and route existing event emission through that seam.
 - [ ] 1.3 Add/expand tests proving behavioral parity for create/focus/split/close/restore controller flows, including stable hook/event payload compatibility.
 - [ ] 1.4 Document the publication seam as the required attachment point for future open-by-design transition wiring.
+- [ ] 1.5 Extract one lookup/state slice from `WorkspaceController` and prove indexed target resolution parity against the current workspace scan behavior.
 
 ## 2. Incremental Slice Migration
 
@@ -12,14 +13,22 @@
 - [ ] 2.3 Add invariant and regression tests for indexed lookup correctness and event payload compatibility.
 - [ ] 2.4 Verify extracted publication paths do not add new inline hook/control-plane wiring outside the dedicated seam for migrated controller slices.
 
-## 3. CLI Picker Unification
+## 3. Workspace Window Shell Boundary Extraction
 
-- [ ] 3.1 Extract shared terminal picker engine (raw mode lifecycle, rendering, key parsing, filtering).
-- [ ] 3.2 Rewire theme and plugin picker implementations to the shared engine while preserving command UX semantics.
-- [ ] 3.3 Add tests for shared key handling and terminal cleanup on success/cancel/error exits.
+- [ ] 3.1 Identify the first shell/view-host extraction seam inside `WorkspaceWindowController` and split it into a dedicated shell-owned module without changing behavior.
+- [ ] 3.2 Extract at least one additional shell subdomain from `WorkspaceWindowController` such as sidebar/canvas composition, floating modal hosting, or pane chrome helpers.
+- [ ] 3.3 Add or reorganize shell parity tests so extracted shell/view-host slices are validated without relying only on one monolithic app-shell test file.
+- [ ] 3.4 Verify shell extraction preserves AppKit-first behavior, terminal host continuity, accessibility IDs, and terminal-bridge ownership boundaries.
 
-## 4. Documentation and Validation
+## 4. CLI Picker Unification
 
-- [ ] 4.1 Update developer documentation describing new controller module boundaries and extension points.
-- [ ] 4.2 Update planning/documentation notes to reference the publication seam as the prerequisite for open-by-design parity follow-up work.
-- [ ] 4.3 Run existing AppShell/CLI/ControlPlane tests to verify no keyboard/input or control-plane regressions.
+- [ ] 4.1 Extract shared terminal picker engine (raw mode lifecycle, rendering, key parsing, filtering).
+- [ ] 4.2 Rewire theme and plugin picker implementations to the shared engine while preserving command UX semantics.
+- [ ] 4.3 Decide whether the vault resume choice picker joins the same engine or stays separate with explicit rationale.
+- [ ] 4.4 Add tests for shared key handling and terminal cleanup on success/cancel/error exits.
+
+## 5. Documentation and Validation
+
+- [ ] 5.1 Update developer documentation describing new controller and shell module boundaries and extension points.
+- [ ] 5.2 Update planning/documentation notes to reference the publication seam as the prerequisite for open-by-design parity follow-up work.
+- [ ] 5.3 Run existing AppShell/CLI/ControlPlane tests to verify no keyboard/input or control-plane regressions.
